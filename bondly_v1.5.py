@@ -2,7 +2,7 @@
 """
 Bondly Bot v1.5 - Professional Edition
 Fixed nickname changing, clean text formatting, zero errors
-Python 3.13 Compatible Version
+Python 3.13 Compatible (using python-telegram-bot v13.15)
 """
 
 import os
@@ -20,20 +20,16 @@ from dotenv import load_dotenv
 # Fix for Python 3.13 missing imghdr module
 import sys
 if sys.version_info >= (3, 13):
-    # Python 3.13 removed imghdr, we need to create a dummy replacement
     import types
     
-    # Create a dummy imghdr module
+    # Create a simple imghdr replacement
     class ImghdrModule(types.ModuleType):
         def what(self, file, h=None):
-            # Simple implementation for common image types
             try:
                 if hasattr(file, 'read'):
-                    # It's a file-like object
                     file.seek(0)
                     header = file.read(12)
                 else:
-                    # It's a filename
                     with open(file, 'rb') as f:
                         header = f.read(12)
                 
@@ -54,22 +50,12 @@ if sys.version_info >= (3, 13):
     
     sys.modules['imghdr'] = ImghdrModule('imghdr')
 
-# Telegram imports
-try:
-    from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
-    from telegram.ext import (
-        Application, CommandHandler, MessageHandler, CallbackQueryHandler,
-        ConversationHandler, ContextTypes, filters
-    )
-    TELEGRAM_VERSION = "20+"
-except ImportError:
-    # Fall back to v13 API
-    from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
-    from telegram.ext import (
-        Updater, CommandHandler, MessageHandler, CallbackQueryHandler,
-        ConversationHandler, Filters
-    )
-    TELEGRAM_VERSION = "13"
+# Telegram imports - using v13.15 API
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import (
+    Updater, CommandHandler, MessageHandler, CallbackQueryHandler,
+    ConversationHandler, Filters, CallbackContext
+)
 
 # Load token
 load_dotenv()
@@ -539,22 +525,19 @@ def validate_nickname(nick: str) -> Tuple[bool, str]:
     return True, "OK"
 
 # Registration states
-REG_NICKNAME, REG_GENDER = range(2)  # Removed REG_FILTER
+REG_NICKNAME, REG_GENDER = range(2)
 
-async def register_start(update: Update, context):
+def register_start(update: Update, context: CallbackContext):
     """Start registration"""
     user_id = update.effective_user.id
     
     if db.get_user(user_id):
-        await update.message.reply_text("You are already registered!")
+        update.message.reply_text("You are already registered!")
         return ConversationHandler.END
     
-    if TELEGRAM_VERSION == "13":
-        context.user_data.clear()
-    else:
-        context.user_data.clear()
+    context.user_data.clear()
     
-    await update.message.reply_text(
+    update.message.reply_text(
         "Registration\n\n"
         "Enter your nickname (3-20 characters):",
         reply_markup=ReplyKeyboardRemove()
@@ -562,13 +545,13 @@ async def register_start(update: Update, context):
     
     return REG_NICKNAME
 
-async def register_nickname(update: Update, context):
+def register_nickname(update: Update, context: CallbackContext):
     """Handle nickname"""
     nick = update.message.text.strip()
     valid, message = validate_nickname(nick)
     
     if not valid:
-        await update.message.reply_text(f"{message}\n\nPlease enter a valid nickname:")
+        update.message.reply_text(f"{message}\n\nPlease enter a valid nickname:")
         return REG_NICKNAME
     
     # Check if unique
@@ -580,25 +563,22 @@ async def register_nickname(update: Update, context):
     
     for user_data in users.values():
         if user_data.get('nickname', '').lower() == nick.lower():
-            await update.message.reply_text(f"'{nick}' is already taken!\n\nPlease choose another:")
+            update.message.reply_text(f"'{nick}' is already taken!\n\nPlease choose another:")
             return REG_NICKNAME
     
-    if TELEGRAM_VERSION == "13":
-        context.user_data['nickname'] = nick
-    else:
-        context.user_data['nickname'] = nick
+    context.user_data['nickname'] = nick
     
     keyboard = [["Male", "Female"], ["Other", "Skip"]]
     
-    await update.message.reply_text(
+    update.message.reply_text(
         "Select your gender:",
         reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
     )
     
     return REG_GENDER
 
-async def register_gender(update: Update, context):
-    """Handle gender selection - NO FILTER SELECTION HERE"""
+def register_gender(update: Update, context: CallbackContext):
+    """Handle gender selection"""
     gender_text = update.message.text
     
     gender_map = {
@@ -609,14 +589,10 @@ async def register_gender(update: Update, context):
     }
     
     if gender_text not in gender_map:
-        await update.message.reply_text("Please select from the options:")
+        update.message.reply_text("Please select from the options:")
         return REG_GENDER
     
-    if TELEGRAM_VERSION == "13":
-        nickname = context.user_data.get('nickname', 'User')
-    else:
-        nickname = context.user_data.get('nickname', 'User')
-    
+    nickname = context.user_data.get('nickname', 'User')
     gender = gender_map[gender_text]
     
     # Create user data
@@ -625,7 +601,7 @@ async def register_gender(update: Update, context):
         'nickname': nickname,
         'gender': gender['value'],
         'gender_display': gender['display'],
-        'search_filter': 'random',  # Default filter
+        'search_filter': 'random',
         'search_filter_display': 'Random',
         'telegram_name': update.effective_user.full_name or "",
         'username': update.effective_user.username or "",
@@ -646,27 +622,22 @@ async def register_gender(update: Update, context):
         ["Help"]
     ]
     
-    await update.message.reply_text(
-        f"""
-Registration Complete!
-
-Welcome to Bondly Bot v{BOT_VERSION}
-
-Your Profile:
-• Nickname: {nickname}
-• Gender: {gender['display']}
-• Search Filter: Random (set with /filter)
-
-Press Find Partner to start chatting!
-""",
+    update.message.reply_text(
+        f"Registration Complete!\n\n"
+        f"Welcome to Bondly Bot v{BOT_VERSION}\n\n"
+        f"Your Profile:\n"
+        f"• Nickname: {nickname}\n"
+        f"• Gender: {gender['display']}\n"
+        f"• Search Filter: Random (set with /filter)\n\n"
+        f"Press Find Partner to start chatting!",
         reply_markup=ReplyKeyboardMarkup(main_menu, resize_keyboard=True)
     )
     
     return ConversationHandler.END
 
-async def register_cancel(update: Update, context):
+def register_cancel(update: Update, context: CallbackContext):
     """Cancel registration"""
-    await update.message.reply_text(
+    update.message.reply_text(
         "Registration cancelled.\n\n"
         "Use /register to try again."
     )
@@ -803,7 +774,7 @@ Current Chat:
     return stats_text.strip()
 
 # ==================== MAIN COMMANDS ====================
-async def start(update: Update, context):
+def start(update: Update, context: CallbackContext):
     """Start command"""
     user_id = update.effective_user.id
     
@@ -818,68 +789,46 @@ async def start(update: Update, context):
             ["Help"]
         ]
         
-        await update.message.reply_text(
-            f"""
-Bondly Bot v{BOT_VERSION}
-
-Professional anonymous chatting platform
-
-New Features:
-• Gender filters in search
-• Precise partner matching
-• Faster connections
-• Enhanced statistics
-
-Press Find Partner to start!
-""",
+        update.message.reply_text(
+            f"Bondly Bot v{BOT_VERSION}\n\n"
+            f"Professional anonymous chatting platform\n\n"
+            f"Press Find Partner to start!",
             reply_markup=ReplyKeyboardMarkup(main_menu, resize_keyboard=True)
         )
     else:
         # New user
-        await update.message.reply_text(
-            f"""
-Welcome to Bondly Bot v{BOT_VERSION}
-
-Professional anonymous chatting platform
-
-Features:
-• Gender filters (Male/Female/Random)
-• Chat with media support
-• Detailed statistics
-• Privacy focused
-• Fast connections
-
-Start by registering:
-""",
+        update.message.reply_text(
+            f"Welcome to Bondly Bot v{BOT_VERSION}\n\n"
+            f"Professional anonymous chatting platform\n\n"
+            f"Start by registering:",
             reply_markup=ReplyKeyboardMarkup([["Register"]], resize_keyboard=True)
         )
 
-async def search(update: Update, context):
+def search(update: Update, context: CallbackContext):
     """Search for partner with gender filters"""
     user_id = update.effective_user.id
     user_data = db.get_user(user_id)
     
     if not user_data:
-        await update.message.reply_text("Please register first with /register")
+        update.message.reply_text("Please register first with /register")
         return
     
     chat_id, chat = cm.get_chat(user_id)
     if chat:
-        await update.message.reply_text("You're already in a chat! Use /leave to exit first.")
+        update.message.reply_text("You're already in a chat! Use /leave to exit first.")
         return
     
     if user_id in cm.waiting:
         waiting_count = cm.get_waiting_count() - 1
         filter_display = user_data.get('search_filter_display', 'Random')
-        await update.message.reply_text(f"Already searching ({filter_display})... {waiting_count} people waiting")
+        update.message.reply_text(f"Already searching ({filter_display})... {waiting_count} people waiting")
         return
     
-    search_msg = await update.message.reply_text("Starting search...")
-    
+    # Simple search without async
     success, message = cm.add_to_waiting(user_id, user_data)
     
     if not success:
-        await search_msg.edit_text(f"{message}")
+        update.message.reply_text(f"{message}")
         return
     
     match = cm.find_match(user_id)
@@ -907,30 +856,22 @@ async def search(update: Update, context):
             [InlineKeyboardButton("Leave Chat", callback_data="leave")]
         ])
         
-        await search_msg.edit_text(
-            f"""
-Match Found!
-
-Partner: {partner_nick}
-Compatibility: {match.get('compatibility', 50)}%
-
-Start chatting now!
-""",
+        update.message.reply_text(
+            f"Match Found!\n\n"
+            f"Partner: {partner_nick}\n"
+            f"Compatibility: {match.get('compatibility', 50)}%\n\n"
+            f"Start chatting now!",
             reply_markup=buttons
         )
         
         # Notify partner
         try:
-            await context.bot.send_message(
+            context.bot.send_message(
                 partner_id,
-                f"""
-Match Found!
-
-Partner: {my_nick}
-Compatibility: {match.get('compatibility', 50)}%
-
-Start chatting now!
-""",
+                f"Match Found!\n\n"
+                f"Partner: {my_nick}\n"
+                f"Compatibility: {match.get('compatibility', 50)}%\n\n"
+                f"Start chatting now!",
                 reply_markup=buttons
             )
         except:
@@ -943,43 +884,37 @@ Start chatting now!
             [InlineKeyboardButton("Cancel Search", callback_data="cancel_search")]
         ])
         
-        await search_msg.edit_text(
-            f"""
-Searching ({filter_display})...
-
-People waiting: {waiting_count}
-Estimated time: {max(30, waiting_count * 15)}s
-
-Please wait...
-""",
+        update.message.reply_text(
+            f"Searching ({filter_display})...\n\n"
+            f"People waiting: {waiting_count}\n"
+            f"Estimated time: {max(30, waiting_count * 15)}s\n\n"
+            f"Please wait...",
             reply_markup=cancel_btn
         )
 
-async def handle_media(update: Update, context):
+def handle_media(update: Update, context: CallbackContext):
     """Handle media messages"""
     user_id = update.effective_user.id
     
     chat_id, chat = cm.get_chat(user_id)
     if not chat:
-        await update.message.reply_text("You're not in a chat. Press 'Find Partner' to search.")
+        update.message.reply_text("You're not in a chat. Press 'Find Partner' to search.")
         return
     
     partner = cm.get_partner(chat_id, user_id)
     if not partner:
-        await update.message.reply_text("Partner not found. The chat may have ended.")
+        update.message.reply_text("Partner not found. The chat may have ended.")
         return
     
     user_data = db.get_user(user_id)
     nickname = user_data.get('nickname', 'User') if user_data else 'User'
     
     try:
-        await context.bot.send_chat_action(chat_id=partner['id'], action="typing")
-        
         if update.message.photo:
             photo = update.message.photo[-1]
             caption = update.message.caption or ""
             
-            await context.bot.send_photo(
+            context.bot.send_photo(
                 partner['id'],
                 photo.file_id,
                 caption=f"Photo from {nickname}: {caption}" if caption else f"Photo from {nickname}"
@@ -992,7 +927,7 @@ async def handle_media(update: Update, context):
             video = update.message.video
             caption = update.message.caption or ""
             
-            await context.bot.send_video(
+            context.bot.send_video(
                 partner['id'],
                 video.file_id,
                 caption=f"Video from {nickname}: {caption}" if caption else f"Video from {nickname}"
@@ -1004,7 +939,7 @@ async def handle_media(update: Update, context):
         elif update.message.voice:
             voice = update.message.voice
             
-            await context.bot.send_voice(
+            context.bot.send_voice(
                 partner['id'],
                 voice.file_id,
                 caption=f"Voice message from {nickname}"
@@ -1014,7 +949,7 @@ async def handle_media(update: Update, context):
             db.update_stats(user_id, 'media_sent')
             
         elif update.message.sticker:
-            await context.bot.send_sticker(partner['id'], update.message.sticker.file_id)
+            context.bot.send_sticker(partner['id'], update.message.sticker.file_id)
             cm.record_message(chat_id, user_id, is_media=True)
             db.update_stats(user_id, 'media_sent')
         
@@ -1022,34 +957,32 @@ async def handle_media(update: Update, context):
         
     except Exception as e:
         logger.error(f"Failed to send media: {e}")
-        await update.message.reply_text("Failed to send media.")
+        update.message.reply_text("Failed to send media.")
 
-async def handle_text(update: Update, context):
+def handle_text(update: Update, context: CallbackContext):
     """Handle text messages"""
     user_id = update.effective_user.id
     text = update.message.text
     
     if text in ["Find Partner", "Statistics", "Profile", "Settings", "Help", "Register"]:
-        await handle_menu(update, context)
+        handle_menu(update, context)
         return
     
     chat_id, chat = cm.get_chat(user_id)
     if not chat:
-        await update.message.reply_text("You're not in a chat. Press 'Find Partner' to search.")
+        update.message.reply_text("You're not in a chat. Press 'Find Partner' to search.")
         return
     
     partner = cm.get_partner(chat_id, user_id)
     if not partner:
-        await update.message.reply_text("Partner not found. The chat may have ended.")
+        update.message.reply_text("Partner not found. The chat may have ended.")
         return
     
     user_data = db.get_user(user_id)
     nickname = user_data.get('nickname', 'User') if user_data else 'User'
     
     try:
-        await context.bot.send_chat_action(chat_id=partner['id'], action="typing")
-        
-        await context.bot.send_message(partner['id'], f"{nickname}: {text}")
+        context.bot.send_message(partner['id'], f"{nickname}: {text}")
         
         cm.record_message(chat_id, user_id)
         
@@ -1058,15 +991,15 @@ async def handle_text(update: Update, context):
         
     except Exception as e:
         logger.error(f"Failed to send message: {e}")
-        await update.message.reply_text("Failed to send message.")
+        update.message.reply_text("Failed to send message.")
 
-async def leave(update: Update, context):
+def leave(update: Update, context: CallbackContext):
     """Leave chat"""
     user_id = update.effective_user.id
     chat_id, chat = cm.get_chat(user_id)
     
     if not chat:
-        await update.message.reply_text("You're not in a chat.")
+        update.message.reply_text("You're not in a chat.")
         return
     
     partner = cm.get_partner(chat_id, user_id)
@@ -1079,62 +1012,58 @@ async def leave(update: Update, context):
         
         if partner:
             try:
-                await context.bot.send_message(
+                context.bot.send_message(
                     partner['id'],
                     "Your partner left the chat.\n\nPress 'Find Partner' to find someone new."
                 )
             except:
                 pass
         
-        await update.message.reply_text(
-            f"""
-Chat Ended
-
-Duration: {format_duration(int(duration))}
-Messages sent: {messages_sent}
-
-Press 'Find Partner' to find someone new.
-"""
+        update.message.reply_text(
+            f"Chat Ended\n\n"
+            f"Duration: {format_duration(int(duration))}\n"
+            f"Messages sent: {messages_sent}\n\n"
+            f"Press 'Find Partner' to find someone new."
         )
     else:
-        await update.message.reply_text("Failed to leave chat.")
+        update.message.reply_text("Failed to leave chat.")
 
-async def profile(update: Update, context):
+def profile(update: Update, context: CallbackContext):
     """Show profile"""
     user_id = update.effective_user.id
     user_data = db.get_user(user_id)
     
     if not user_data:
-        await update.message.reply_text("You're not registered! Use /register first.")
+        update.message.reply_text("You're not registered! Use /register first.")
         return
     
     profile_text = format_profile(user_id, user_data)
-    await update.message.reply_text(profile_text)
+    update.message.reply_text(profile_text)
 
-async def stats_command(update: Update, context):
+def stats_command(update: Update, context: CallbackContext):
     """Show statistics"""
     user_id = update.effective_user.id
     user_data = db.get_user(user_id)
     
     if not user_data:
-        await update.message.reply_text("You're not registered! Use /register first.")
+        update.message.reply_text("You're not registered! Use /register first.")
         return
     
     stats_text = format_stats(user_id, user_data)
-    await update.message.reply_text(stats_text)
+    update.message.reply_text(stats_text)
 
-async def nickname_command(update: Update, context):
-    """Change nickname - FIXED VERSION"""
+def nickname_command(update: Update, context: CallbackContext):
+    """Change nickname"""
     user_id = update.effective_user.id
     user_data = db.get_user(user_id)
     
     if not user_data:
-        await update.message.reply_text("You need to register first!")
+        update.message.reply_text("You need to register first!")
         return
     
     if not context.args:
         current_nick = user_data.get('nickname', 'Not set')
-        await update.message.reply_text(
+        update.message.reply_text(
             f"Change Nickname\n\n"
             f"Current: {current_nick}\n\n"
             "Usage: /nickname [new_nickname]\n"
@@ -1146,7 +1075,7 @@ async def nickname_command(update: Update, context):
     valid, message = validate_nickname(new_nick)
     
     if not valid:
-        await update.message.reply_text(f"{message}")
+        update.message.reply_text(f"{message}")
         return
     
     # Check if unique (excluding current user)
@@ -1159,7 +1088,7 @@ async def nickname_command(update: Update, context):
     for uid, data in users.items():
         # Skip the current user
         if str(user_id) != uid and data.get('nickname', '').lower() == new_nick.lower():
-            await update.message.reply_text(f"'{new_nick}' is already taken!")
+            update.message.reply_text(f"'{new_nick}' is already taken!")
             return
     
     # Update nickname
@@ -1169,15 +1098,15 @@ async def nickname_command(update: Update, context):
     # Save the updated user data
     db.save_user(user_id, user_data)
     
-    await update.message.reply_text(f"Nickname updated from '{old_nick}' to '{new_nick}'")
+    update.message.reply_text(f"Nickname updated from '{old_nick}' to '{new_nick}'")
 
-async def filter_command(update: Update, context):
-    """Change search filter - NOW IN SETTINGS"""
+def filter_command(update: Update, context: CallbackContext):
+    """Change search filter"""
     user_id = update.effective_user.id
     user_data = db.get_user(user_id)
     
     if not user_data:
-        await update.message.reply_text("You need to register first!")
+        update.message.reply_text("You need to register first!")
         return
     
     if not context.args:
@@ -1189,7 +1118,7 @@ async def filter_command(update: Update, context):
             [InlineKeyboardButton("Female only", callback_data="filter_female")]
         ])
         
-        await update.message.reply_text(
+        update.message.reply_text(
             f"Search Filter\n\n"
             f"Current: {current_filter}\n\n"
             "Select who you want to chat with:",
@@ -1206,7 +1135,7 @@ async def filter_command(update: Update, context):
     }
     
     if filter_text not in ['random', 'male', 'female']:
-        await update.message.reply_text(
+        update.message.reply_text(
             "Invalid filter!\n\n"
             "Options: random, male, female\n"
             "Example: /filter female"
@@ -1217,18 +1146,18 @@ async def filter_command(update: Update, context):
     user_data['search_filter_display'] = filter_map[filter_text]['display']
     db.save_user(user_id, user_data)
     
-    await update.message.reply_text(
+    update.message.reply_text(
         f"Filter Updated!\n\n"
         f"New filter: {filter_map[filter_text]['display']}"
     )
 
-async def delete_command(update: Update, context):
+def delete_command(update: Update, context: CallbackContext):
     """Delete account"""
     user_id = update.effective_user.id
     user_data = db.get_user(user_id)
     
     if not user_data:
-        await update.message.reply_text("You don't have an account!")
+        update.message.reply_text("You don't have an account!")
         return
     
     nickname = user_data.get('nickname', 'User')
@@ -1238,26 +1167,26 @@ async def delete_command(update: Update, context):
         [InlineKeyboardButton("Cancel", callback_data="cancel_delete")]
     ])
     
-    await update.message.reply_text(
+    update.message.reply_text(
         f"Delete account '{nickname}'?\n\n"
         "This will remove all your data.\n"
         "This action cannot be undone!",
         reply_markup=keyboard
     )
 
-async def blocked_command(update: Update, context):
+def blocked_command(update: Update, context: CallbackContext):
     """Show blocked users"""
     user_id = update.effective_user.id
     user_data = db.get_user(user_id)
     
     if not user_data:
-        await update.message.reply_text("You need to register first!")
+        update.message.reply_text("You need to register first!")
         return
     
     blocked = db.get_blocked_users(user_id)
     
     if not blocked:
-        await update.message.reply_text("You haven't blocked anyone yet.")
+        update.message.reply_text("You haven't blocked anyone yet.")
         return
     
     message = "Blocked Users\n\n"
@@ -1274,15 +1203,15 @@ async def blocked_command(update: Update, context):
         )])
     
     keyboard = InlineKeyboardMarkup(buttons)
-    await update.message.reply_text(message, reply_markup=keyboard)
+    update.message.reply_text(message, reply_markup=keyboard)
 
-async def settings_command(update: Update, context):
+def settings_command(update: Update, context: CallbackContext):
     """Settings menu"""
     user_id = update.effective_user.id
     user_data = db.get_user(user_id)
     
     if not user_data:
-        await update.message.reply_text("You need to register first! Use /register")
+        update.message.reply_text("You need to register first! Use /register")
         return
     
     settings_text = f"""
@@ -1312,10 +1241,10 @@ Current Settings:
 Back: /start
 """
     
-    await update.message.reply_text(settings_text)
+    update.message.reply_text(settings_text)
 
-async def help_command(update: Update, context):
-    """Help command - CLEANED TEXT FORMATTING"""
+def help_command(update: Update, context: CallbackContext):
+    """Help command"""
     help_text = f"""
 Bondly Bot v{BOT_VERSION} - Help
 
@@ -1365,36 +1294,36 @@ ID support: https://t.me/Bitcoin_00009
 Happy chatting!
 """
     
-    await update.message.reply_text(help_text)
+    update.message.reply_text(help_text)
 
-async def handle_menu(update: Update, context):
+def handle_menu(update: Update, context: CallbackContext):
     """Handle menu buttons"""
     text = update.message.text
     
     if text == "Find Partner":
-        await search(update, context)
+        search(update, context)
     elif text == "Statistics":
-        await stats_command(update, context)
+        stats_command(update, context)
     elif text == "Profile":
-        await profile(update, context)
+        profile(update, context)
     elif text == "Settings":
-        await settings_command(update, context)
+        settings_command(update, context)
     elif text == "Help":
-        await help_command(update, context)
+        help_command(update, context)
     elif text == "Register":
-        await register_start(update, context)
+        register_start(update, context)
 
-async def callback_handler(update: Update, context):
+def callback_handler(update: Update, context: CallbackContext):
     """Handle button callbacks"""
     query = update.callback_query
-    await query.answer()
+    query.answer()
     user_id = query.from_user.id
     data = query.data
     
     try:
         if data == "cancel_search":
             cm.remove_from_waiting(user_id)
-            await query.edit_message_text("Search cancelled.")
+            query.edit_message_text("Search cancelled.")
         
         elif data == "next":
             chat_id, chat = cm.get_chat(user_id)
@@ -1402,7 +1331,7 @@ async def callback_handler(update: Update, context):
                 partner = cm.get_partner(chat_id, user_id)
                 if partner:
                     try:
-                        await context.bot.send_message(
+                        context.bot.send_message(
                             partner['id'],
                             "Your partner wants to talk to someone else."
                         )
@@ -1410,7 +1339,7 @@ async def callback_handler(update: Update, context):
                         pass
                 
                 cm.end_chat(chat_id, "next")
-                await query.edit_message_text("Finding new partner...")
+                query.edit_message_text("Finding new partner...")
         
         elif data == "block":
             chat_id, chat = cm.get_chat(user_id)
@@ -1421,10 +1350,10 @@ async def callback_handler(update: Update, context):
                     db.block_user(user_id, partner['id'], partner_nick)
                 
                 cm.end_chat(chat_id, "blocked")
-                await query.edit_message_text("User blocked.")
+                query.edit_message_text("User blocked.")
         
         elif data == "leave":
-            await leave(update, context)
+            leave(update, context)
         
         elif data == "rate_good":
             chat_id, chat = cm.get_chat(user_id)
@@ -1432,7 +1361,7 @@ async def callback_handler(update: Update, context):
                 partner = cm.get_partner(chat_id, user_id)
                 if partner:
                     db.update_stats(partner['id'], 'ratings_positive')
-                    await query.edit_message_text("Rating submitted: Good")
+                    query.edit_message_text("Rating submitted: Good")
         
         elif data == "rate_bad":
             chat_id, chat = cm.get_chat(user_id)
@@ -1440,7 +1369,7 @@ async def callback_handler(update: Update, context):
                 partner = cm.get_partner(chat_id, user_id)
                 if partner:
                     db.update_stats(partner['id'], 'ratings_negative')
-                    await query.edit_message_text("Rating submitted: Bad")
+                    query.edit_message_text("Rating submitted: Bad")
         
         elif data == "confirm_delete":
             user_data = db.get_user(user_id)
@@ -1454,21 +1383,21 @@ async def callback_handler(update: Update, context):
             
             db.delete_user(user_id)
             
-            await query.edit_message_text(
+            query.edit_message_text(
                 f"Account '{nickname}' deleted.\n\n"
                 "Use /start to register again."
             )
         
         elif data == "cancel_delete":
-            await query.edit_message_text("Deletion cancelled.")
+            query.edit_message_text("Deletion cancelled.")
         
         elif data.startswith("unblock_"):
             blocked_id = data.split("_")[1]
             
             if db.unblock_user(user_id, int(blocked_id)):
-                await query.edit_message_text("User unblocked.")
+                query.edit_message_text("User unblocked.")
             else:
-                await query.edit_message_text("User not found in blocked list.")
+                query.edit_message_text("User not found in blocked list.")
         
         elif data.startswith("filter_"):
             filter_type = data.split("_")[1]
@@ -1486,16 +1415,16 @@ async def callback_handler(update: Update, context):
                     user_data['search_filter_display'] = filter_map[filter_type]['display']
                     db.save_user(user_id, user_data)
                     
-                    await query.edit_message_text(
+                    query.edit_message_text(
                         f"Filter updated to {filter_map[filter_type]['display']}"
                     )
     
     except Exception as e:
         logger.error(f"Callback error: {e}")
-        await query.edit_message_text("An error occurred.")
+        query.edit_message_text("An error occurred.")
 
 # ==================== CLEANUP TASK ====================
-async def cleanup_task(context):
+def cleanup_task(context: CallbackContext):
     """Periodic cleanup"""
     try:
         now = datetime.now()
@@ -1513,7 +1442,7 @@ async def cleanup_task(context):
             cm.remove_from_waiting(user_id)
             
             try:
-                await context.bot.send_message(
+                context.bot.send_message(
                     user_id,
                     "Search cancelled due to inactivity.\n"
                     "Press 'Find Partner' to search again."
@@ -1541,7 +1470,7 @@ async def cleanup_task(context):
             if chat:
                 for user_info in [chat['user1'], chat['user2']]:
                     try:
-                        await context.bot.send_message(
+                        context.bot.send_message(
                             user_info['id'],
                             "Chat ended due to inactivity."
                         )
@@ -1560,7 +1489,7 @@ def main():
     print(f"BONDLY BOT v{BOT_VERSION} - PROFESSIONAL EDITION")
     print("="*60)
     print(f"Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
-    print(f"Using python-telegram-bot {TELEGRAM_VERSION}")
+    print("Using python-telegram-bot v13.15 (Python 3.13 compatible)")
     print("="*60)
     print("Fixed: Nickname changing now works properly")
     print("Fixed: Clean text formatting without stars")
@@ -1569,135 +1498,69 @@ def main():
     print("Starting bot...")
     print("="*60)
     
-    if TELEGRAM_VERSION == "13":
-        # Use v13 API
-        from telegram.ext import Updater, Filters, CallbackContext
-        
-        updater = Updater(TOKEN, use_context=True)
-        dp = updater.dispatcher
-        
-        # Registration conversation
-        conv_handler = ConversationHandler(
-            entry_points=[
-                CommandHandler('register', register_start),
-                MessageHandler(Filters.text & Filters.regex(r'^Register$'), register_start)
-            ],
-            states={
-                REG_NICKNAME: [MessageHandler(Filters.text & ~Filters.command, register_nickname)],
-                REG_GENDER: [MessageHandler(Filters.text & ~Filters.command, register_gender)],
-            },
-            fallbacks=[CommandHandler('cancel', register_cancel)],
-        )
-        
-        # Add handlers
-        dp.add_handler(conv_handler)
-        dp.add_handler(CommandHandler("start", start))
-        dp.add_handler(CommandHandler("help", help_command))
-        dp.add_handler(CommandHandler("search", search))
-        dp.add_handler(CommandHandler("leave", leave))
-        dp.add_handler(CommandHandler("profile", profile))
-        dp.add_handler(CommandHandler("stats", stats_command))
-        dp.add_handler(CommandHandler("nickname", nickname_command))
-        dp.add_handler(CommandHandler("filter", filter_command))
-        dp.add_handler(CommandHandler("delete", delete_command))
-        dp.add_handler(CommandHandler("blocked", blocked_command))
-        dp.add_handler(CommandHandler("settings", settings_command))
-        
-        # Callback handler
-        dp.add_handler(CallbackQueryHandler(callback_handler))
-        
-        # Menu buttons
-        dp.add_handler(MessageHandler(
-            Filters.text & Filters.regex(r'^(Find Partner|Statistics|Profile|Settings|Help|Register)$'),
-            handle_menu
-        ))
-        
-        # Media handlers
-        dp.add_handler(MessageHandler(
-            Filters.photo | Filters.video | Filters.voice | Filters.sticker,
-            handle_media
-        ))
-        
-        # Text messages (must be last)
-        dp.add_handler(MessageHandler(
-            Filters.text & ~Filters.command,
-            handle_text
-        ))
-        
-        # Add job queue for cleanup
-        job_queue = updater.job_queue
-        if job_queue:
-            job_queue.run_repeating(cleanup_task, interval=60, first=30)
-        
-        print("Bot is ready!")
-        print("="*60)
-        
-        # Run bot
-        updater.start_polling()
-        updater.idle()
-        
-    else:
-        # Use v20+ API
-        app = Application.builder().token(TOKEN).build()
-        
-        # Registration conversation (no filter selection)
-        conv_handler = ConversationHandler(
-            entry_points=[
-                CommandHandler('register', register_start),
-                MessageHandler(filters.TEXT & filters.Regex(r'^Register$'), register_start)
-            ],
-            states={
-                REG_NICKNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_nickname)],
-                REG_GENDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_gender)],
-            },
-            fallbacks=[CommandHandler('cancel', register_cancel)],
-        )
-        
-        # Add handlers
-        app.add_handler(conv_handler)
-        app.add_handler(CommandHandler("start", start))
-        app.add_handler(CommandHandler("help", help_command))
-        app.add_handler(CommandHandler("search", search))
-        app.add_handler(CommandHandler("leave", leave))
-        app.add_handler(CommandHandler("profile", profile))
-        app.add_handler(CommandHandler("stats", stats_command))
-        app.add_handler(CommandHandler("nickname", nickname_command))
-        app.add_handler(CommandHandler("filter", filter_command))
-        app.add_handler(CommandHandler("delete", delete_command))
-        app.add_handler(CommandHandler("blocked", blocked_command))
-        app.add_handler(CommandHandler("settings", settings_command))
-        
-        # Callback handler
-        app.add_handler(CallbackQueryHandler(callback_handler))
-        
-        # Menu buttons
-        app.add_handler(MessageHandler(
-            filters.TEXT & filters.Regex(r'^(Find Partner|Statistics|Profile|Settings|Help|Register)$'),
-            handle_menu
-        ))
-        
-        # Media handlers
-        app.add_handler(MessageHandler(
-            filters.PHOTO | filters.VIDEO | filters.VOICE | filters.Sticker.ALL,
-            handle_media
-        ))
-        
-        # Text messages (must be last)
-        app.add_handler(MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
-            handle_text
-        ))
-        
-        # Add job queue for cleanup
-        job_queue = app.job_queue
-        if job_queue:
-            job_queue.run_repeating(cleanup_task, interval=60, first=30)
-        
-        print("Bot is ready!")
-        print("="*60)
-        
-        # Run bot
-        app.run_polling(drop_pending_updates=True)
+    # Create updater with v13.15 API
+    updater = Updater(TOKEN, use_context=True)
+    dp = updater.dispatcher
+    
+    # Registration conversation
+    conv_handler = ConversationHandler(
+        entry_points=[
+            CommandHandler('register', register_start),
+            MessageHandler(Filters.text & Filters.regex(r'^Register$'), register_start)
+        ],
+        states={
+            REG_NICKNAME: [MessageHandler(Filters.text & ~Filters.command, register_nickname)],
+            REG_GENDER: [MessageHandler(Filters.text & ~Filters.command, register_gender)],
+        },
+        fallbacks=[CommandHandler('cancel', register_cancel)],
+    )
+    
+    # Add handlers
+    dp.add_handler(conv_handler)
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("help", help_command))
+    dp.add_handler(CommandHandler("search", search))
+    dp.add_handler(CommandHandler("leave", leave))
+    dp.add_handler(CommandHandler("profile", profile))
+    dp.add_handler(CommandHandler("stats", stats_command))
+    dp.add_handler(CommandHandler("nickname", nickname_command))
+    dp.add_handler(CommandHandler("filter", filter_command))
+    dp.add_handler(CommandHandler("delete", delete_command))
+    dp.add_handler(CommandHandler("blocked", blocked_command))
+    dp.add_handler(CommandHandler("settings", settings_command))
+    
+    # Callback handler
+    dp.add_handler(CallbackQueryHandler(callback_handler))
+    
+    # Menu buttons
+    dp.add_handler(MessageHandler(
+        Filters.text & Filters.regex(r'^(Find Partner|Statistics|Profile|Settings|Help|Register)$'),
+        handle_menu
+    ))
+    
+    # Media handlers
+    dp.add_handler(MessageHandler(
+        Filters.photo | Filters.video | Filters.voice | Filters.sticker,
+        handle_media
+    ))
+    
+    # Text messages (must be last)
+    dp.add_handler(MessageHandler(
+        Filters.text & ~Filters.command,
+        handle_text
+    ))
+    
+    # Add job queue for cleanup
+    job_queue = updater.job_queue
+    if job_queue:
+        job_queue.run_repeating(cleanup_task, interval=60, first=30)
+    
+    print("Bot is ready!")
+    print("="*60)
+    
+    # Run bot
+    updater.start_polling()
+    updater.idle()
 
 if __name__ == "__main__":
     main()
