@@ -2,6 +2,7 @@
 """
 Bondly Bot v1.5 - Professional Edition
 Fixed nickname changing, clean text formatting, zero errors
+Python 3.13 Compatible Version
 """
 
 import os
@@ -16,12 +17,59 @@ from datetime import datetime, timedelta
 from typing import Dict, Optional, Tuple, List
 from dotenv import load_dotenv
 
+# Fix for Python 3.13 missing imghdr module
+import sys
+if sys.version_info >= (3, 13):
+    # Python 3.13 removed imghdr, we need to create a dummy replacement
+    import types
+    
+    # Create a dummy imghdr module
+    class ImghdrModule(types.ModuleType):
+        def what(self, file, h=None):
+            # Simple implementation for common image types
+            try:
+                if hasattr(file, 'read'):
+                    # It's a file-like object
+                    file.seek(0)
+                    header = file.read(12)
+                else:
+                    # It's a filename
+                    with open(file, 'rb') as f:
+                        header = f.read(12)
+                
+                # Check for common image formats
+                if header.startswith(b'\xff\xd8\xff'):
+                    return 'jpeg'
+                elif header.startswith(b'\x89PNG\r\n\x1a\n'):
+                    return 'png'
+                elif header.startswith(b'GIF87a') or header.startswith(b'GIF89a'):
+                    return 'gif'
+                elif header.startswith(b'RIFF') and header[8:12] == b'WEBP':
+                    return 'webp'
+                elif header.startswith(b'BM'):
+                    return 'bmp'
+            except:
+                pass
+            return None
+    
+    sys.modules['imghdr'] = ImghdrModule('imghdr')
+
 # Telegram imports
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import (
-    Application, CommandHandler, MessageHandler, CallbackQueryHandler,
-    ConversationHandler, ContextTypes, filters
-)
+try:
+    from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
+    from telegram.ext import (
+        Application, CommandHandler, MessageHandler, CallbackQueryHandler,
+        ConversationHandler, ContextTypes, filters
+    )
+    TELEGRAM_VERSION = "20+"
+except ImportError:
+    # Fall back to v13 API
+    from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
+    from telegram.ext import (
+        Updater, CommandHandler, MessageHandler, CallbackQueryHandler,
+        ConversationHandler, Filters
+    )
+    TELEGRAM_VERSION = "13"
 
 # Load token
 load_dotenv()
@@ -493,7 +541,7 @@ def validate_nickname(nick: str) -> Tuple[bool, str]:
 # Registration states
 REG_NICKNAME, REG_GENDER = range(2)  # Removed REG_FILTER
 
-async def register_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def register_start(update: Update, context):
     """Start registration"""
     user_id = update.effective_user.id
     
@@ -501,7 +549,10 @@ async def register_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("You are already registered!")
         return ConversationHandler.END
     
-    context.user_data.clear()
+    if TELEGRAM_VERSION == "13":
+        context.user_data.clear()
+    else:
+        context.user_data.clear()
     
     await update.message.reply_text(
         "Registration\n\n"
@@ -511,7 +562,7 @@ async def register_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     return REG_NICKNAME
 
-async def register_nickname(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def register_nickname(update: Update, context):
     """Handle nickname"""
     nick = update.message.text.strip()
     valid, message = validate_nickname(nick)
@@ -532,7 +583,10 @@ async def register_nickname(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"'{nick}' is already taken!\n\nPlease choose another:")
             return REG_NICKNAME
     
-    context.user_data['nickname'] = nick
+    if TELEGRAM_VERSION == "13":
+        context.user_data['nickname'] = nick
+    else:
+        context.user_data['nickname'] = nick
     
     keyboard = [["Male", "Female"], ["Other", "Skip"]]
     
@@ -543,7 +597,7 @@ async def register_nickname(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     return REG_GENDER
 
-async def register_gender(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def register_gender(update: Update, context):
     """Handle gender selection - NO FILTER SELECTION HERE"""
     gender_text = update.message.text
     
@@ -558,7 +612,11 @@ async def register_gender(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Please select from the options:")
         return REG_GENDER
     
-    nickname = context.user_data.get('nickname', 'User')
+    if TELEGRAM_VERSION == "13":
+        nickname = context.user_data.get('nickname', 'User')
+    else:
+        nickname = context.user_data.get('nickname', 'User')
+    
     gender = gender_map[gender_text]
     
     # Create user data
@@ -606,7 +664,7 @@ Press Find Partner to start chatting!
     
     return ConversationHandler.END
 
-async def register_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def register_cancel(update: Update, context):
     """Cancel registration"""
     await update.message.reply_text(
         "Registration cancelled.\n\n"
@@ -745,7 +803,7 @@ Current Chat:
     return stats_text.strip()
 
 # ==================== MAIN COMMANDS ====================
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(update: Update, context):
     """Start command"""
     user_id = update.effective_user.id
     
@@ -796,7 +854,7 @@ Start by registering:
             reply_markup=ReplyKeyboardMarkup([["Register"]], resize_keyboard=True)
         )
 
-async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def search(update: Update, context):
     """Search for partner with gender filters"""
     user_id = update.effective_user.id
     user_data = db.get_user(user_id)
@@ -897,7 +955,7 @@ Please wait...
             reply_markup=cancel_btn
         )
 
-async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_media(update: Update, context):
     """Handle media messages"""
     user_id = update.effective_user.id
     
@@ -966,7 +1024,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Failed to send media: {e}")
         await update.message.reply_text("Failed to send media.")
 
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_text(update: Update, context):
     """Handle text messages"""
     user_id = update.effective_user.id
     text = update.message.text
@@ -1002,7 +1060,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Failed to send message: {e}")
         await update.message.reply_text("Failed to send message.")
 
-async def leave(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def leave(update: Update, context):
     """Leave chat"""
     user_id = update.effective_user.id
     chat_id, chat = cm.get_chat(user_id)
@@ -1041,7 +1099,7 @@ Press 'Find Partner' to find someone new.
     else:
         await update.message.reply_text("Failed to leave chat.")
 
-async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def profile(update: Update, context):
     """Show profile"""
     user_id = update.effective_user.id
     user_data = db.get_user(user_id)
@@ -1053,7 +1111,7 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     profile_text = format_profile(user_id, user_data)
     await update.message.reply_text(profile_text)
 
-async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def stats_command(update: Update, context):
     """Show statistics"""
     user_id = update.effective_user.id
     user_data = db.get_user(user_id)
@@ -1065,7 +1123,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     stats_text = format_stats(user_id, user_data)
     await update.message.reply_text(stats_text)
 
-async def nickname_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def nickname_command(update: Update, context):
     """Change nickname - FIXED VERSION"""
     user_id = update.effective_user.id
     user_data = db.get_user(user_id)
@@ -1113,7 +1171,7 @@ async def nickname_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(f"Nickname updated from '{old_nick}' to '{new_nick}'")
 
-async def filter_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def filter_command(update: Update, context):
     """Change search filter - NOW IN SETTINGS"""
     user_id = update.effective_user.id
     user_data = db.get_user(user_id)
@@ -1164,7 +1222,7 @@ async def filter_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"New filter: {filter_map[filter_text]['display']}"
     )
 
-async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def delete_command(update: Update, context):
     """Delete account"""
     user_id = update.effective_user.id
     user_data = db.get_user(user_id)
@@ -1187,7 +1245,7 @@ async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=keyboard
     )
 
-async def blocked_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def blocked_command(update: Update, context):
     """Show blocked users"""
     user_id = update.effective_user.id
     user_data = db.get_user(user_id)
@@ -1218,7 +1276,7 @@ async def blocked_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup(buttons)
     await update.message.reply_text(message, reply_markup=keyboard)
 
-async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def settings_command(update: Update, context):
     """Settings menu"""
     user_id = update.effective_user.id
     user_data = db.get_user(user_id)
@@ -1256,7 +1314,7 @@ Back: /start
     
     await update.message.reply_text(settings_text)
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def help_command(update: Update, context):
     """Help command - CLEANED TEXT FORMATTING"""
     help_text = f"""
 Bondly Bot v{BOT_VERSION} - Help
@@ -1309,7 +1367,7 @@ Happy chatting!
     
     await update.message.reply_text(help_text)
 
-async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_menu(update: Update, context):
     """Handle menu buttons"""
     text = update.message.text
     
@@ -1326,7 +1384,7 @@ async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "Register":
         await register_start(update, context)
 
-async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def callback_handler(update: Update, context):
     """Handle button callbacks"""
     query = update.callback_query
     await query.answer()
@@ -1437,7 +1495,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("An error occurred.")
 
 # ==================== CLEANUP TASK ====================
-async def cleanup_task(context: ContextTypes.DEFAULT_TYPE):
+async def cleanup_task(context):
     """Periodic cleanup"""
     try:
         now = datetime.now()
@@ -1501,6 +1559,9 @@ def main():
     print("\n" + "="*60)
     print(f"BONDLY BOT v{BOT_VERSION} - PROFESSIONAL EDITION")
     print("="*60)
+    print(f"Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
+    print(f"Using python-telegram-bot {TELEGRAM_VERSION}")
+    print("="*60)
     print("Fixed: Nickname changing now works properly")
     print("Fixed: Clean text formatting without stars")
     print("Fixed: Gender selection moved to search time")
@@ -1508,71 +1569,135 @@ def main():
     print("Starting bot...")
     print("="*60)
     
-    # For python-telegram-bot v13.15 (compatible with Python 3.13)
-    from telegram.ext import Updater, MessageHandler, Filters, CommandHandler, CallbackQueryHandler, ConversationHandler
-    
-    # Create updater with v13.15 API
-    updater = Updater(TOKEN, use_context=True)
-    dp = updater.dispatcher
-    
-    # Registration conversation (no filter selection)
-    conv_handler = ConversationHandler(
-        entry_points=[
-            CommandHandler('register', register_start),
-            MessageHandler(Filters.text & Filters.regex(r'^Register$'), register_start)
-        ],
-        states={
-            REG_NICKNAME: [MessageHandler(Filters.text & ~Filters.command, register_nickname)],
-            REG_GENDER: [MessageHandler(Filters.text & ~Filters.command, register_gender)],
-        },
-        fallbacks=[CommandHandler('cancel', register_cancel)],
-    )
-    
-    # Add handlers
-    dp.add_handler(conv_handler)
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("help", help_command))
-    dp.add_handler(CommandHandler("search", search))
-    dp.add_handler(CommandHandler("leave", leave))
-    dp.add_handler(CommandHandler("profile", profile))
-    dp.add_handler(CommandHandler("stats", stats_command))
-    dp.add_handler(CommandHandler("nickname", nickname_command))
-    dp.add_handler(CommandHandler("filter", filter_command))
-    dp.add_handler(CommandHandler("delete", delete_command))
-    dp.add_handler(CommandHandler("blocked", blocked_command))
-    dp.add_handler(CommandHandler("settings", settings_command))
-    
-    # Callback handler
-    dp.add_handler(CallbackQueryHandler(callback_handler))
-    
-    # Menu buttons
-    dp.add_handler(MessageHandler(
-        Filters.text & Filters.regex(r'^(Find Partner|Statistics|Profile|Settings|Help|Register)$'),
-        handle_menu
-    ))
-    
-    # Media handlers
-    dp.add_handler(MessageHandler(
-        Filters.photo | Filters.video | Filters.voice | Filters.sticker,
-        handle_media
-    ))
-    
-    # Text messages (must be last)
-    dp.add_handler(MessageHandler(
-        Filters.text & ~Filters.command,
-        handle_text
-    ))
-    
-    # Add job queue for cleanup
-    job_queue = updater.job_queue
-    if job_queue:
-        job_queue.run_repeating(cleanup_task, interval=60, first=30)
-    
-    print("Bot is ready!")
-    print("="*60)
-    
-    # Run bot
-    updater.start_polling()
-    updater.idle()
+    if TELEGRAM_VERSION == "13":
+        # Use v13 API
+        from telegram.ext import Updater, Filters, CallbackContext
+        
+        updater = Updater(TOKEN, use_context=True)
+        dp = updater.dispatcher
+        
+        # Registration conversation
+        conv_handler = ConversationHandler(
+            entry_points=[
+                CommandHandler('register', register_start),
+                MessageHandler(Filters.text & Filters.regex(r'^Register$'), register_start)
+            ],
+            states={
+                REG_NICKNAME: [MessageHandler(Filters.text & ~Filters.command, register_nickname)],
+                REG_GENDER: [MessageHandler(Filters.text & ~Filters.command, register_gender)],
+            },
+            fallbacks=[CommandHandler('cancel', register_cancel)],
+        )
+        
+        # Add handlers
+        dp.add_handler(conv_handler)
+        dp.add_handler(CommandHandler("start", start))
+        dp.add_handler(CommandHandler("help", help_command))
+        dp.add_handler(CommandHandler("search", search))
+        dp.add_handler(CommandHandler("leave", leave))
+        dp.add_handler(CommandHandler("profile", profile))
+        dp.add_handler(CommandHandler("stats", stats_command))
+        dp.add_handler(CommandHandler("nickname", nickname_command))
+        dp.add_handler(CommandHandler("filter", filter_command))
+        dp.add_handler(CommandHandler("delete", delete_command))
+        dp.add_handler(CommandHandler("blocked", blocked_command))
+        dp.add_handler(CommandHandler("settings", settings_command))
+        
+        # Callback handler
+        dp.add_handler(CallbackQueryHandler(callback_handler))
+        
+        # Menu buttons
+        dp.add_handler(MessageHandler(
+            Filters.text & Filters.regex(r'^(Find Partner|Statistics|Profile|Settings|Help|Register)$'),
+            handle_menu
+        ))
+        
+        # Media handlers
+        dp.add_handler(MessageHandler(
+            Filters.photo | Filters.video | Filters.voice | Filters.sticker,
+            handle_media
+        ))
+        
+        # Text messages (must be last)
+        dp.add_handler(MessageHandler(
+            Filters.text & ~Filters.command,
+            handle_text
+        ))
+        
+        # Add job queue for cleanup
+        job_queue = updater.job_queue
+        if job_queue:
+            job_queue.run_repeating(cleanup_task, interval=60, first=30)
+        
+        print("Bot is ready!")
+        print("="*60)
+        
+        # Run bot
+        updater.start_polling()
+        updater.idle()
+        
+    else:
+        # Use v20+ API
+        app = Application.builder().token(TOKEN).build()
+        
+        # Registration conversation (no filter selection)
+        conv_handler = ConversationHandler(
+            entry_points=[
+                CommandHandler('register', register_start),
+                MessageHandler(filters.TEXT & filters.Regex(r'^Register$'), register_start)
+            ],
+            states={
+                REG_NICKNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_nickname)],
+                REG_GENDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_gender)],
+            },
+            fallbacks=[CommandHandler('cancel', register_cancel)],
+        )
+        
+        # Add handlers
+        app.add_handler(conv_handler)
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(CommandHandler("help", help_command))
+        app.add_handler(CommandHandler("search", search))
+        app.add_handler(CommandHandler("leave", leave))
+        app.add_handler(CommandHandler("profile", profile))
+        app.add_handler(CommandHandler("stats", stats_command))
+        app.add_handler(CommandHandler("nickname", nickname_command))
+        app.add_handler(CommandHandler("filter", filter_command))
+        app.add_handler(CommandHandler("delete", delete_command))
+        app.add_handler(CommandHandler("blocked", blocked_command))
+        app.add_handler(CommandHandler("settings", settings_command))
+        
+        # Callback handler
+        app.add_handler(CallbackQueryHandler(callback_handler))
+        
+        # Menu buttons
+        app.add_handler(MessageHandler(
+            filters.TEXT & filters.Regex(r'^(Find Partner|Statistics|Profile|Settings|Help|Register)$'),
+            handle_menu
+        ))
+        
+        # Media handlers
+        app.add_handler(MessageHandler(
+            filters.PHOTO | filters.VIDEO | filters.VOICE | filters.Sticker.ALL,
+            handle_media
+        ))
+        
+        # Text messages (must be last)
+        app.add_handler(MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            handle_text
+        ))
+        
+        # Add job queue for cleanup
+        job_queue = app.job_queue
+        if job_queue:
+            job_queue.run_repeating(cleanup_task, interval=60, first=30)
+        
+        print("Bot is ready!")
+        print("="*60)
+        
+        # Run bot
+        app.run_polling(drop_pending_updates=True)
+
 if __name__ == "__main__":
     main()
