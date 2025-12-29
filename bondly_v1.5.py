@@ -1508,59 +1508,63 @@ def main():
     print("Starting bot...")
     print("="*60)
     
-    # Create application
-    app = Application.builder().token(TOKEN).build()
+    # For python-telegram-bot v13.15 (compatible with Python 3.13)
+    from telegram.ext import Updater, MessageHandler, Filters, CommandHandler, CallbackQueryHandler, ConversationHandler
+    
+    # Create updater with v13.15 API
+    updater = Updater(TOKEN, use_context=True)
+    dp = updater.dispatcher
     
     # Registration conversation (no filter selection)
     conv_handler = ConversationHandler(
         entry_points=[
             CommandHandler('register', register_start),
-            MessageHandler(filters.TEXT & filters.Regex(r'^Register$'), register_start)
+            MessageHandler(Filters.text & Filters.regex(r'^Register$'), register_start)
         ],
         states={
-            REG_NICKNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_nickname)],
-            REG_GENDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_gender)],
+            REG_NICKNAME: [MessageHandler(Filters.text & ~Filters.command, register_nickname)],
+            REG_GENDER: [MessageHandler(Filters.text & ~Filters.command, register_gender)],
         },
         fallbacks=[CommandHandler('cancel', register_cancel)],
     )
     
     # Add handlers
-    app.add_handler(conv_handler)
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("search", search))
-    app.add_handler(CommandHandler("leave", leave))
-    app.add_handler(CommandHandler("profile", profile))
-    app.add_handler(CommandHandler("stats", stats_command))
-    app.add_handler(CommandHandler("nickname", nickname_command))
-    app.add_handler(CommandHandler("filter", filter_command))
-    app.add_handler(CommandHandler("delete", delete_command))
-    app.add_handler(CommandHandler("blocked", blocked_command))
-    app.add_handler(CommandHandler("settings", settings_command))
+    dp.add_handler(conv_handler)
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("help", help_command))
+    dp.add_handler(CommandHandler("search", search))
+    dp.add_handler(CommandHandler("leave", leave))
+    dp.add_handler(CommandHandler("profile", profile))
+    dp.add_handler(CommandHandler("stats", stats_command))
+    dp.add_handler(CommandHandler("nickname", nickname_command))
+    dp.add_handler(CommandHandler("filter", filter_command))
+    dp.add_handler(CommandHandler("delete", delete_command))
+    dp.add_handler(CommandHandler("blocked", blocked_command))
+    dp.add_handler(CommandHandler("settings", settings_command))
     
     # Callback handler
-    app.add_handler(CallbackQueryHandler(callback_handler))
+    dp.add_handler(CallbackQueryHandler(callback_handler))
     
     # Menu buttons
-    app.add_handler(MessageHandler(
-        filters.TEXT & filters.Regex(r'^(Find Partner|Statistics|Profile|Settings|Help|Register)$'),
+    dp.add_handler(MessageHandler(
+        Filters.text & Filters.regex(r'^(Find Partner|Statistics|Profile|Settings|Help|Register)$'),
         handle_menu
     ))
     
     # Media handlers
-    app.add_handler(MessageHandler(
-        filters.PHOTO | filters.VIDEO | filters.VOICE | filters.Sticker.ALL,
+    dp.add_handler(MessageHandler(
+        Filters.photo | Filters.video | Filters.voice | Filters.sticker,
         handle_media
     ))
     
     # Text messages (must be last)
-    app.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND,
+    dp.add_handler(MessageHandler(
+        Filters.text & ~Filters.command,
         handle_text
     ))
     
     # Add job queue for cleanup
-    job_queue = app.job_queue
+    job_queue = updater.job_queue
     if job_queue:
         job_queue.run_repeating(cleanup_task, interval=60, first=30)
     
@@ -1568,7 +1572,7 @@ def main():
     print("="*60)
     
     # Run bot
-    app.run_polling(drop_pending_updates=True)
-
+    updater.start_polling()
+    updater.idle()
 if __name__ == "__main__":
     main()
