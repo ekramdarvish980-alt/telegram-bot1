@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Bondly Bot v1.6 - Auto Registration Edition
-Automatic registration, nickname from username, simplified flow
+Bondly Bot v1.8 - Ultimate Edition
+Fixed: Username conversion, Leave partner button, Auto registration, Next partner functionality
 """
 
 import os
@@ -39,7 +39,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Bot version
-BOT_VERSION = "1.6"
+BOT_VERSION = "1.8"
 
 # ==================== PROFESSIONAL DATABASE ====================
 class ProfessionalDB:
@@ -474,41 +474,71 @@ class ProfessionalChatManager:
 
 cm = ProfessionalChatManager()
 
-# ==================== AUTO REGISTRATION FUNCTIONS ====================
-def generate_nickname_from_username(user: Update.effective_user) -> str:
-    """Generate nickname from Telegram username or full name"""
-    # Try username first
+# ==================== IMPROVED USERNAME CONVERSION ====================
+def clean_nickname(nickname: str) -> str:
+    """Clean and format nickname properly"""
+    if not nickname:
+        return "User"
+    
+    # Remove @ symbol if present
+    nickname = nickname.replace('@', '')
+    
+    # Remove special characters but keep letters, numbers, spaces, and underscores
+    nickname = re.sub(r'[^\w\s]', '', nickname, flags=re.UNICODE)
+    
+    # Remove extra spaces
+    nickname = ' '.join(nickname.split())
+    
+    # Capitalize first letter of each word
+    nickname = nickname.title()
+    
+    return nickname[:20]  # Limit to 20 characters
+
+def generate_nickname(user: Update.effective_user) -> str:
+    """Generate nickname from Telegram profile - IMPROVED VERSION"""
+    # Priority 1: Username (without @)
     if user.username:
-        return user.username
+        nickname = user.username.replace('@', '')
+        return clean_nickname(nickname)
     
-    # Try first name
+    # Priority 2: First name + last name
     if user.first_name:
-        # Remove non-alphanumeric characters and limit length
-        nickname = re.sub(r'[^a-zA-Z0-9_]', '', user.first_name)
-        if nickname and len(nickname) >= 3:
-            return nickname
+        if user.last_name:
+            nickname = f"{user.first_name} {user.last_name}"
+        else:
+            nickname = user.first_name
+        return clean_nickname(nickname)
     
-    # If no suitable name found, generate one
-    random_num = random.randint(1000, 9999)
-    return f"User{random_num}"
+    # Priority 3: Just first name
+    if user.first_name:
+        return clean_nickname(user.first_name)
+    
+    # Priority 4: Generate random name
+    adjectives = ["Cool", "Smart", "Happy", "Funny", "Brave", "Kind", "Wise", "Gentle"]
+    nouns = ["Tiger", "Eagle", "Dolphin", "Phoenix", "Wolf", "Lion", "Dragon", "Bear"]
+    
+    random_num = random.randint(10, 99)
+    nickname = f"{random.choice(adjectives)}{random.choice(nouns)}{random_num}"
+    
+    return nickname
 
 def auto_register_user(user_id: int, user: Update.effective_user) -> Dict:
-    """Automatically register a user with default settings"""
-    # Generate nickname
-    nickname = generate_nickname_from_username(user)
+    """Automatically register a user with improved nickname system"""
+    # Generate nickname from username/name
+    nickname = generate_nickname(user)
     
     # Create user data with default values
     user_data = {
         'nickname': nickname,
-        'gender': 'not_specified',  # Default to not specified
+        'gender': 'not_specified',
         'gender_display': 'Not specified',
-        'search_filter': 'random',  # Default filter
+        'search_filter': 'random',
         'search_filter_display': 'Random',
         'telegram_name': user.full_name or "",
         'username': user.username or "",
         'registered': datetime.now().isoformat(),
         'user_id': user_id,
-        'auto_registered': True  # Flag to identify auto-registered users
+        'auto_registered': True
     }
     
     # Save user
@@ -563,23 +593,24 @@ def format_profile(user_id: int, user_data: Dict) -> str:
     auto_registered = user_data.get('auto_registered', False)
     
     profile = f"""
-ID: {user_id}
+📋 Profile
 
-Nickname: {user_data.get('nickname', 'Unknown')}
-Gender: {user_data.get('gender_display', 'Not specified')} {'(Auto)' if auto_registered else ''}
-Filter: {user_data.get('search_filter_display', 'Random')}
-Registered: {reg_date}
+🆔 ID: {user_id}
+👤 Nickname: {user_data.get('nickname', 'Unknown')}
+⚤ Gender: {user_data.get('gender_display', 'Not specified')} {'(Auto)' if auto_registered else ''}
+🔍 Filter: {user_data.get('search_filter_display', 'Random')}
+📅 Registered: {reg_date}
 
-Chats:
-  Total: {total_chats}
-  Today: {chats_today}
-  Duration: {duration_str}
+💬 Chats:
+  • Total: {total_chats}
+  • Today: {chats_today}
+  • Duration: {duration_str}
 
-Messages:
-  Sent: {messages_sent}
-  Received: {messages_received}
+✉️ Messages:
+  • Sent: {messages_sent}
+  • Received: {messages_received}
 
-Ratings: {positive_ratings}👍 {negative_ratings}👎
+⭐ Ratings: {positive_ratings}👍 {negative_ratings}👎
 """
     
     return profile.strip()
@@ -590,8 +621,8 @@ def format_stats(user_id: int, user_data: Dict) -> str:
     global_stats = db.get_global_stats()
     
     chat_id, chat = cm.get_chat(user_id)
-    in_chat = "In chat" if chat else "Not in chat"
-    in_queue = "Searching" if user_id in cm.waiting else "Not searching"
+    in_chat = "✅ In chat" if chat else "❌ Not in chat"
+    in_queue = "🔍 Searching" if user_id in cm.waiting else "⏸️ Not searching"
     
     total_users = format_number(global_stats.get('total_users', 0))
     total_messages = format_number(global_stats.get('total_messages', 0))
@@ -600,30 +631,30 @@ def format_stats(user_id: int, user_data: Dict) -> str:
     total_negative = format_number(global_stats.get('total_negative_ratings', 0))
     
     stats_text = f"""
-Statistics
+📊 Statistics
 
-Nickname: {user_data.get('nickname', 'Unknown')}
-Filter: {user_data.get('search_filter_display', 'Random')}
+👤 Nickname: {user_data.get('nickname', 'Unknown')}
+🔍 Filter: {user_data.get('search_filter_display', 'Random')}
 
-Your Activity:
-  Messages sent: {format_number(int(stats.get('messages_sent', 0)))}
-  Messages received: {format_number(int(stats.get('messages_received', 0)))}
-  Media shared: {format_number(int(stats.get('media_sent', 0)))}
-  Chats started: {format_number(int(stats.get('chats_started', 0)))}
-  Chats today: {format_number(int(stats.get('chats_today', 0)))}
-  Chat duration: {format_duration(int(stats.get('total_chat_duration', 0)))}
+📈 Your Activity:
+  • Messages sent: {format_number(int(stats.get('messages_sent', 0)))}
+  • Messages received: {format_number(int(stats.get('messages_received', 0)))}
+  • Media shared: {format_number(int(stats.get('media_sent', 0)))}
+  • Chats started: {format_number(int(stats.get('chats_started', 0)))}
+  • Chats today: {format_number(int(stats.get('chats_today', 0)))}
+  • Chat duration: {format_duration(int(stats.get('total_chat_duration', 0)))}
 
-Current Status:
-  {in_chat}
-  {in_queue}
-  People waiting: {cm.get_waiting_count()}
+📱 Current Status:
+  • {in_chat}
+  • {in_queue}
+  • People waiting: {cm.get_waiting_count()}
 
-Global Statistics:
-  Total users: {total_users}
-  Total messages: {total_messages}
-  Total chats: {total_chats}
-  Positive ratings: {total_positive}
-  Negative ratings: {total_negative}
+🌐 Global Statistics:
+  • Total users: {total_users}
+  • Total messages: {total_messages}
+  • Total chats: {total_chats}
+  • Positive ratings: {total_positive}
+  • Negative ratings: {total_negative}
 """
     
     if chat:
@@ -642,75 +673,209 @@ Global Statistics:
             messages_received = chat.get('messages_sent_user2', 0) if chat['user1']['id'] == user_id else chat.get('messages_sent_user1', 0)
             
             stats_text += f"""
-Current Chat:
-  Partner: {partner_nick}
-  Duration: {format_duration(chat_duration)}
-  Messages sent: {messages_sent}
-  Messages received: {messages_received}
+💬 Current Chat:
+  • Partner: {partner_nick}
+  • Duration: {format_duration(chat_duration)}
+  • Messages sent: {messages_sent}
+  • Messages received: {messages_received}
 """
     
     return stats_text.strip()
 
-# ==================== UPDATED GENDER SETTINGS ====================
-async def gender_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Set or change gender - OPTIONAL command"""
-    user_id = update.effective_user.id
-    user_data = db.get_user(user_id)
+# ==================== FIXED LEAVE PARTNER FUNCTION ====================
+async def leave_chat_from_callback(user_id: int, context: ContextTypes.DEFAULT_TYPE, query=None):
+    """Leave chat function for both callback and command - FIXED VERSION"""
+    chat_id, chat = cm.get_chat(user_id)
     
-    if not user_data:
-        # Auto-register if not registered
-        user_data = auto_register_user(user_id, update.effective_user)
+    if not chat:
+        if query:
+            await query.answer("You're not in a chat.", show_alert=True)
+        return False
     
-    if not context.args:
-        current_gender = user_data.get('gender_display', 'Not specified')
+    partner = cm.get_partner(chat_id, user_id)
+    
+    ended_chat = cm.end_chat(chat_id, "left")
+    
+    if ended_chat:
+        duration = ended_chat.get('duration', 0)
+        messages_sent = ended_chat.get('messages_sent_user1', 0) if ended_chat['user1']['id'] == user_id else ended_chat.get('messages_sent_user2', 0)
         
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Male", callback_data="set_gender_male"),
-             InlineKeyboardButton("Female", callback_data="set_gender_female")],
-            [InlineKeyboardButton("Other", callback_data="set_gender_other"),
-             InlineKeyboardButton("Not specified", callback_data="set_gender_none")]
+        if partner:
+            try:
+                await context.bot.send_message(
+                    partner['id'],
+                    "❌ Your partner left the chat.\n\n"
+                    "Press 'Find Partner' to find someone new."
+                )
+            except:
+                pass
+        
+        # Send response based on how function was called
+        if query:
+            await query.edit_message_text(
+                f"""
+✅ Chat Ended
+
+⏱️ Duration: {format_duration(int(duration))}
+✉️ Messages sent: {messages_sent}
+
+Press 'Find Partner' to find someone new.
+"""
+            )
+        else:
+            return f"""
+✅ Chat Ended
+
+⏱️ Duration: {format_duration(int(duration))}
+✉️ Messages sent: {messages_sent}
+
+Press 'Find Partner' to find someone new.
+"""
+        return True
+    else:
+        if query:
+            await query.answer("Failed to leave chat.", show_alert=True)
+        return False
+
+# ==================== SEARCH HELPER FUNCTIONS ====================
+async def start_search_for_user(user_id: int, context: ContextTypes.DEFAULT_TYPE, query=None):
+    """Helper function to start search for a user"""
+    user_data = db.get_user(user_id)
+    if not user_data:
+        if query:
+            await query.answer("Please register first!", show_alert=True)
+        return False
+    
+    # Check if already in chat
+    chat_id, chat = cm.get_chat(user_id)
+    if chat:
+        if query:
+            await query.answer("You're already in a chat!", show_alert=True)
+        return False
+    
+    # Check if already searching
+    if user_id in cm.waiting:
+        waiting_count = cm.get_waiting_count() - 1
+        filter_display = user_data.get('search_filter_display', 'Random')
+        if query:
+            await query.answer(f"Already searching ({filter_display})... {waiting_count} people waiting", show_alert=True)
+        return False
+    
+    # Add to waiting list
+    success, message = cm.add_to_waiting(user_id, user_data)
+    if not success:
+        if query:
+            await query.answer(message, show_alert=True)
+        return False
+    
+    # Find match
+    match = cm.find_match(user_id)
+    
+    if match:
+        # Create new chat
+        chat_id = cm.create_chat(
+            match['user1'], match['user2'],
+            match['data1'], match['data2']
+        )
+        
+        if match['user1'] == user_id:
+            partner_id = match['user2']
+            partner_nick = match['data2'].get('nickname', 'Anonymous')
+            my_nick = match['data1']['nickname']
+        else:
+            partner_id = match['user1']
+            partner_nick = match['data1'].get('nickname', 'Anonymous')
+            my_nick = match['data2']['nickname']
+        
+        buttons = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄 Next Partner", callback_data="next"),
+             InlineKeyboardButton("🚫 Block", callback_data="block")],
+            [InlineKeyboardButton("👍 Rate Good", callback_data="rate_good"),
+             InlineKeyboardButton("👎 Rate Bad", callback_data="rate_bad")],
+            [InlineKeyboardButton("❌ Leave Chat", callback_data="leave")]
         ])
         
-        await update.message.reply_text(
-            f"Set Gender (Optional)\n\n"
-            f"Current: {current_gender}\n\n"
-            "This helps find better matches.\n"
-            "You can skip or change later.\n\n"
-            "Select your gender:",
-            reply_markup=keyboard
-        )
-        return
-    
-    gender_text = ' '.join(context.args).lower()
-    
-    gender_map = {
-        'male': {'value': 'male', 'display': 'Male'},
-        'female': {'value': 'female', 'display': 'Female'},
-        'other': {'value': 'other', 'display': 'Other'},
-        'none': {'value': 'not_specified', 'display': 'Not specified'},
-        'skip': {'value': 'not_specified', 'display': 'Not specified'}
-    }
-    
-    if gender_text not in ['male', 'female', 'other', 'none', 'skip']:
-        await update.message.reply_text(
-            "Invalid gender!\n\n"
-            "Options: male, female, other, none\n"
-            "Example: /gender female\n"
-            "Or use: /gender skip"
-        )
-        return
-    
-    user_data['gender'] = gender_map[gender_text]['value']
-    user_data['gender_display'] = gender_map[gender_text]['display']
-    user_data['auto_registered'] = False  # Mark as manually set
-    db.save_user(user_id, user_data)
-    
-    await update.message.reply_text(
-        f"Gender Updated!\n\n"
-        f"New gender: {gender_map[gender_text]['display']}"
-    )
+        if query:
+            await query.edit_message_text(
+                f"""
+🎉 New Partner Found!
 
-# ==================== SIMPLIFIED MAIN COMMANDS ====================
+👤 Partner: {partner_nick}
+🤝 Compatibility: {match.get('compatibility', 50)}%
+
+💬 Start chatting now!
+""",
+                reply_markup=buttons
+            )
+        else:
+            await context.bot.send_message(
+                user_id,
+                f"""
+🎉 New Partner Found!
+
+👤 Partner: {partner_nick}
+🤝 Compatibility: {match.get('compatibility', 50)}%
+
+💬 Start chatting now!
+""",
+                reply_markup=buttons
+            )
+        
+        # Notify partner
+        try:
+            await context.bot.send_message(
+                partner_id,
+                f"""
+🎉 Match Found!
+
+👤 Partner: {my_nick}
+🤝 Compatibility: {match.get('compatibility', 50)}%
+
+💬 Start chatting now!
+""",
+                reply_markup=buttons
+            )
+        except:
+            pass
+        
+        return True
+    else:
+        # No match found, show waiting message
+        waiting_count = cm.get_waiting_count() - 1
+        filter_display = user_data.get('search_filter_display', 'Random')
+        
+        cancel_btn = InlineKeyboardMarkup([
+            [InlineKeyboardButton("❌ Cancel Search", callback_data="cancel_search")]
+        ])
+        
+        if query:
+            await query.edit_message_text(
+                f"""
+🔍 Searching ({filter_display})
+
+👥 People waiting: {waiting_count}
+⏱️ Estimated time: {max(30, waiting_count * 15)}s
+
+Please wait...
+""",
+                reply_markup=cancel_btn
+            )
+        else:
+            await context.bot.send_message(
+                user_id,
+                f"""
+🔍 Searching ({filter_display})
+
+👥 People waiting: {waiting_count}
+⏱️ Estimated time: {max(30, waiting_count * 15)}s
+
+Please wait...
+""",
+                reply_markup=cancel_btn
+            )
+        return False
+
+# ==================== MAIN COMMANDS - SIMPLIFIED ====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start command with auto-registration"""
     user_id = update.effective_user.id
@@ -726,17 +891,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data = auto_register_user(user_id, user)
         
         message = f"""
-Welcome to Bondly Bot v{BOT_VERSION} 🎉
+🎉 Welcome to Bondly Bot v{BOT_VERSION}
 
 ✅ You have been automatically registered!
 
-Your nickname: {user_data['nickname']}
-Gender: Not specified (set with /gender)
-Filter: Random (change with /filter)
+📝 Your nickname: {user_data['nickname']}
+⚤ Gender: Not specified (set with /gender)
+🔍 Filter: Random (change with /filter)
 
 You can start chatting immediately!
 
-Main Menu:
+📱 Main Menu:
 • Find Partner - Start searching
 • Profile - View your profile
 • Settings - Adjust preferences
@@ -747,26 +912,26 @@ Enjoy chatting! 😊
     else:
         # Already registered
         message = f"""
-Bondly Bot v{BOT_VERSION} 🎉
+🎉 Bondly Bot v{BOT_VERSION}
 
-Welcome back, {user_data.get('nickname', 'User')}!
+👋 Welcome back, {user_data.get('nickname', 'User')}!
 
 Ready to chat with new people?
 
-Main Menu:
+📱 Main Menu:
 • Find Partner - Start searching
 • Profile - View your profile
 • Settings - Adjust preferences
 • Help - Get help
 
-People waiting: {cm.get_waiting_count()}
+👥 People waiting: {cm.get_waiting_count()}
 """
     
     # Main menu
     main_menu = [
-        ["Find Partner", "Statistics"],
-        ["Profile", "Settings"],
-        ["Help"]
+        ["🔍 Find Partner", "📊 Statistics"],
+        ["👤 Profile", "⚙️ Settings"],
+        ["❓ Help"]
     ]
     
     await update.message.reply_text(
@@ -782,24 +947,25 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Auto-register if not registered
     if not user_data:
         user_data = auto_register_user(user_id, update.effective_user)
+        await update.message.reply_text("✅ You have been automatically registered!")
     
     chat_id, chat = cm.get_chat(user_id)
     if chat:
-        await update.message.reply_text("You're already in a chat! Use /leave to exit first.")
+        await update.message.reply_text("❌ You're already in a chat! Use /leave to exit first.")
         return
     
     if user_id in cm.waiting:
         waiting_count = cm.get_waiting_count() - 1
         filter_display = user_data.get('search_filter_display', 'Random')
-        await update.message.reply_text(f"Already searching ({filter_display})... {waiting_count} people waiting")
+        await update.message.reply_text(f"🔍 Already searching ({filter_display})... {waiting_count} people waiting")
         return
     
-    search_msg = await update.message.reply_text("Starting search...")
+    search_msg = await update.message.reply_text("🔄 Starting search...")
     
     success, message = cm.add_to_waiting(user_id, user_data)
     
     if not success:
-        await search_msg.edit_text(f"{message}")
+        await search_msg.edit_text(f"❌ {message}")
         return
     
     match = cm.find_match(user_id)
@@ -820,21 +986,21 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
             my_nick = match['data2']['nickname']
         
         buttons = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Next Partner", callback_data="next"),
-             InlineKeyboardButton("Block", callback_data="block")],
-            [InlineKeyboardButton("Rate Good", callback_data="rate_good"),
-             InlineKeyboardButton("Rate Bad", callback_data="rate_bad")],
-            [InlineKeyboardButton("Leave Chat", callback_data="leave")]
+            [InlineKeyboardButton("🔄 Next Partner", callback_data="next"),
+             InlineKeyboardButton("🚫 Block", callback_data="block")],
+            [InlineKeyboardButton("👍 Rate Good", callback_data="rate_good"),
+             InlineKeyboardButton("👎 Rate Bad", callback_data="rate_bad")],
+            [InlineKeyboardButton("❌ Leave Chat", callback_data="leave")]
         ])
         
         await search_msg.edit_text(
             f"""
-Match Found! 🎉
+🎉 Match Found!
 
-Partner: {partner_nick}
-Compatibility: {match.get('compatibility', 50)}%
+👤 Partner: {partner_nick}
+🤝 Compatibility: {match.get('compatibility', 50)}%
 
-Start chatting now! 💬
+💬 Start chatting now!
 """,
             reply_markup=buttons
         )
@@ -844,12 +1010,12 @@ Start chatting now! 💬
             await context.bot.send_message(
                 partner_id,
                 f"""
-Match Found! 🎉
+🎉 Match Found!
 
-Partner: {my_nick}
-Compatibility: {match.get('compatibility', 50)}%
+👤 Partner: {my_nick}
+🤝 Compatibility: {match.get('compatibility', 50)}%
 
-Start chatting now! 💬
+💬 Start chatting now!
 """,
                 reply_markup=buttons
             )
@@ -860,15 +1026,15 @@ Start chatting now! 💬
         filter_display = user_data.get('search_filter_display', 'Random')
         
         cancel_btn = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Cancel Search", callback_data="cancel_search")]
+            [InlineKeyboardButton("❌ Cancel Search", callback_data="cancel_search")]
         ])
         
         await search_msg.edit_text(
             f"""
-Searching ({filter_display}) 🔍
+🔍 Searching ({filter_display})
 
-People waiting: {waiting_count}
-Estimated time: {max(30, waiting_count * 15)}s
+👥 People waiting: {waiting_count}
+⏱️ Estimated time: {max(30, waiting_count * 15)}s
 
 Please wait...
 """,
@@ -881,12 +1047,12 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     chat_id, chat = cm.get_chat(user_id)
     if not chat:
-        await update.message.reply_text("You're not in a chat. Press 'Find Partner' to search.")
+        await update.message.reply_text("❌ You're not in a chat. Press 'Find Partner' to search.")
         return
     
     partner = cm.get_partner(chat_id, user_id)
     if not partner:
-        await update.message.reply_text("Partner not found. The chat may have ended.")
+        await update.message.reply_text("❌ Partner not found. The chat may have ended.")
         return
     
     user_data = db.get_user(user_id)
@@ -902,7 +1068,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_photo(
                 partner['id'],
                 photo.file_id,
-                caption=f"Photo from {nickname}: {caption}" if caption else f"Photo from {nickname}"
+                caption=f"📸 Photo from {nickname}: {caption}" if caption else f"📸 Photo from {nickname}"
             )
             
             cm.record_message(chat_id, user_id, is_media=True)
@@ -915,7 +1081,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_video(
                 partner['id'],
                 video.file_id,
-                caption=f"Video from {nickname}: {caption}" if caption else f"Video from {nickname}"
+                caption=f"🎬 Video from {nickname}: {caption}" if caption else f"🎬 Video from {nickname}"
             )
             
             cm.record_message(chat_id, user_id, is_media=True)
@@ -927,7 +1093,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_voice(
                 partner['id'],
                 voice.file_id,
-                caption=f"Voice message from {nickname}"
+                caption=f"🎤 Voice message from {nickname}"
             )
             
             cm.record_message(chat_id, user_id, is_media=True)
@@ -942,25 +1108,25 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     except Exception as e:
         logger.error(f"Failed to send media: {e}")
-        await update.message.reply_text("Failed to send media.")
+        await update.message.reply_text("❌ Failed to send media.")
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle text messages"""
     user_id = update.effective_user.id
     text = update.message.text
     
-    if text in ["Find Partner", "Statistics", "Profile", "Settings", "Help", "Register"]:
+    if text in ["🔍 Find Partner", "📊 Statistics", "👤 Profile", "⚙️ Settings", "❓ Help"]:
         await handle_menu(update, context)
         return
     
     chat_id, chat = cm.get_chat(user_id)
     if not chat:
-        await update.message.reply_text("You're not in a chat. Press 'Find Partner' to search.")
+        await update.message.reply_text("❌ You're not in a chat. Press 'Find Partner' to search.")
         return
     
     partner = cm.get_partner(chat_id, user_id)
     if not partner:
-        await update.message.reply_text("Partner not found. The chat may have ended.")
+        await update.message.reply_text("❌ Partner not found. The chat may have ended.")
         return
     
     user_data = db.get_user(user_id)
@@ -978,46 +1144,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     except Exception as e:
         logger.error(f"Failed to send message: {e}")
-        await update.message.reply_text("Failed to send message.")
+        await update.message.reply_text("❌ Failed to send message.")
 
 async def leave(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Leave chat"""
+    """Leave chat command"""
     user_id = update.effective_user.id
-    chat_id, chat = cm.get_chat(user_id)
     
-    if not chat:
-        await update.message.reply_text("You're not in a chat.")
-        return
-    
-    partner = cm.get_partner(chat_id, user_id)
-    
-    ended_chat = cm.end_chat(chat_id, "left")
-    
-    if ended_chat:
-        duration = ended_chat.get('duration', 0)
-        messages_sent = ended_chat.get('messages_sent_user1', 0) if ended_chat['user1']['id'] == user_id else ended_chat.get('messages_sent_user2', 0)
-        
-        if partner:
-            try:
-                await context.bot.send_message(
-                    partner['id'],
-                    "Your partner left the chat.\n\nPress 'Find Partner' to find someone new."
-                )
-            except:
-                pass
-        
-        await update.message.reply_text(
-            f"""
-Chat Ended
-
-Duration: {format_duration(int(duration))}
-Messages sent: {messages_sent}
-
-Press 'Find Partner' to find someone new.
-"""
-        )
-    else:
-        await update.message.reply_text("Failed to leave chat.")
+    response = await leave_chat_from_callback(user_id, context)
+    if response:
+        await update.message.reply_text(response)
 
 async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show profile - with auto-registration if needed"""
@@ -1058,7 +1193,7 @@ async def nickname_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         current_nick = user_data.get('nickname', 'Not set')
         await update.message.reply_text(
-            f"Change Nickname\n\n"
+            f"✏️ Change Nickname\n\n"
             f"Current: {current_nick}\n\n"
             "Usage: /nickname [new_nickname]\n"
             "Example: /nickname John"
@@ -1069,11 +1204,11 @@ async def nickname_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Simple validation
     if not new_nick or len(new_nick) < 2:
-        await update.message.reply_text("Nickname must be at least 2 characters.")
+        await update.message.reply_text("❌ Nickname must be at least 2 characters.")
         return
     
     if len(new_nick) > 25:
-        await update.message.reply_text("Nickname cannot exceed 25 characters.")
+        await update.message.reply_text("❌ Nickname cannot exceed 25 characters.")
         return
     
     # Update nickname
@@ -1084,6 +1219,65 @@ async def nickname_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.save_user(user_id, user_data)
     
     await update.message.reply_text(f"✅ Nickname updated from '{old_nick}' to '{new_nick}'")
+
+async def gender_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Set or change gender - OPTIONAL command"""
+    user_id = update.effective_user.id
+    user_data = db.get_user(user_id)
+    
+    # Auto-register if not registered
+    if not user_data:
+        user_data = auto_register_user(user_id, update.effective_user)
+        await update.message.reply_text("✅ You have been automatically registered!")
+    
+    if not context.args:
+        current_gender = user_data.get('gender_display', 'Not specified')
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("👨 Male", callback_data="set_gender_male"),
+             InlineKeyboardButton("👩 Female", callback_data="set_gender_female")],
+            [InlineKeyboardButton("⚧ Other", callback_data="set_gender_other"),
+             InlineKeyboardButton("❓ Not specified", callback_data="set_gender_none")]
+        ])
+        
+        await update.message.reply_text(
+            f"⚤ Set Gender (Optional)\n\n"
+            f"Current: {current_gender}\n\n"
+            "This helps find better matches.\n"
+            "You can skip or change later.\n\n"
+            "Select your gender:",
+            reply_markup=keyboard
+        )
+        return
+    
+    gender_text = ' '.join(context.args).lower()
+    
+    gender_map = {
+        'male': {'value': 'male', 'display': 'Male'},
+        'female': {'value': 'female', 'display': 'Female'},
+        'other': {'value': 'other', 'display': 'Other'},
+        'none': {'value': 'not_specified', 'display': 'Not specified'},
+        'skip': {'value': 'not_specified', 'display': 'Not specified'}
+    }
+    
+    if gender_text not in ['male', 'female', 'other', 'none', 'skip']:
+        await update.message.reply_text(
+            "❌ Invalid gender!\n\n"
+            "Options: male, female, other, none\n"
+            "Example: /gender female\n"
+            "Or use: /gender skip"
+        )
+        return
+    
+    user_data['gender'] = gender_map[gender_text]['value']
+    user_data['gender_display'] = gender_map[gender_text]['display']
+    user_data['auto_registered'] = False
+    db.save_user(user_id, user_data)
+    
+    await update.message.reply_text(
+        f"✅ Gender Updated!\n\n"
+        f"New gender: {gender_map[gender_text]['display']}"
+    )
 
 async def filter_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Change search filter - with auto-registration if needed"""
@@ -1099,13 +1293,13 @@ async def filter_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         current_filter = user_data.get('search_filter_display', 'Random')
         
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Random", callback_data="filter_random"),
-             InlineKeyboardButton("Male only", callback_data="filter_male")],
-            [InlineKeyboardButton("Female only", callback_data="filter_female")]
+            [InlineKeyboardButton("🎲 Random", callback_data="filter_random"),
+             InlineKeyboardButton("👨 Male only", callback_data="filter_male")],
+            [InlineKeyboardButton("👩 Female only", callback_data="filter_female")]
         ])
         
         await update.message.reply_text(
-            f"Search Filter\n\n"
+            f"🔍 Search Filter\n\n"
             f"Current: {current_filter}\n\n"
             "Select who you want to chat with:",
             reply_markup=keyboard
@@ -1122,7 +1316,7 @@ async def filter_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if filter_text not in ['random', 'male', 'female']:
         await update.message.reply_text(
-            "Invalid filter!\n\n"
+            "❌ Invalid filter!\n\n"
             "Options: random, male, female\n"
             "Example: /filter female"
         )
@@ -1143,18 +1337,18 @@ async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data = db.get_user(user_id)
     
     if not user_data:
-        await update.message.reply_text("You don't have an account!")
+        await update.message.reply_text("❌ You don't have an account!")
         return
     
     nickname = user_data.get('nickname', 'User')
     
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Yes, delete everything", callback_data="confirm_delete")],
-        [InlineKeyboardButton("Cancel", callback_data="cancel_delete")]
+        [InlineKeyboardButton("✅ Yes, delete everything", callback_data="confirm_delete")],
+        [InlineKeyboardButton("❌ Cancel", callback_data="cancel_delete")]
     ])
     
     await update.message.reply_text(
-        f"Delete account '{nickname}'?\n\n"
+        f"🗑️ Delete account '{nickname}'?\n\n"
         "This will remove all your data.\n"
         "This action cannot be undone!",
         reply_markup=keyboard
@@ -1174,10 +1368,10 @@ async def blocked_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     blocked = db.get_blocked_users(user_id)
     
     if not blocked:
-        await update.message.reply_text("You haven't blocked anyone yet.")
+        await update.message.reply_text("✅ You haven't blocked anyone yet.")
         return
     
-    message = "Blocked Users\n\n"
+    message = "🚫 Blocked Users\n\n"
     buttons = []
     
     for blocked_id, info in blocked.items():
@@ -1186,7 +1380,7 @@ async def blocked_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message += f"• {blocked_nick} (ID: {blocked_id})\n"
         
         buttons.append([InlineKeyboardButton(
-            f"Unblock {blocked_nick}",
+            f"✅ Unblock {blocked_nick}",
             callback_data=f"unblock_{blocked_id}"
         )])
     
@@ -1204,39 +1398,39 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("✅ You have been automatically registered!")
     
     settings_text = f"""
-Settings ⚙️
+⚙️ Settings
 
-Profile Settings:
+👤 Profile Settings:
 /nickname [new] - Change nickname
 /gender - Set gender (optional)
 /filter - Change search filter
 
-Privacy Settings:
+🔒 Privacy Settings:
 /blocked - Blocked users
 
-Statistics:
+📊 Statistics:
 /stats - Your statistics
 
-Account Management:
+🗑️ Account Management:
 /delete - Delete account
 
-Bot Information:
+❓ Bot Information:
 /help - Help guide
 
-Current Settings:
+📋 Current Settings:
 • Nickname: {user_data.get('nickname', 'Not set')}
 • Gender: {user_data.get('gender_display', 'Not specified')}
 • Search Filter: {user_data.get('search_filter_display', 'Random')}
 
-Back: /start
+🏠 Back: /start
 """
     
     await update.message.reply_text(settings_text)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Help command - UPDATED FOR AUTO-REGISTRATION"""
+    """Help command"""
     help_text = f"""
-Bondly Bot v{BOT_VERSION} - Help 🆘
+❓ Bondly Bot v{BOT_VERSION} - Help
 
 🚀 Quick Start:
 Just use /start - You're automatically registered!
@@ -1254,7 +1448,7 @@ Just use /start - You're automatically registered!
 /filter - Change search filter
 
 💬 Chat Commands:
-Find Partner - Search for chat
+🔍 Find Partner - Search for chat
 /leave - Exit chat
 Send text, photos, videos, voice messages
 Use buttons during chat
@@ -1289,19 +1483,19 @@ async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle menu buttons"""
     text = update.message.text
     
-    if text == "Find Partner":
+    if text == "🔍 Find Partner":
         await search(update, context)
-    elif text == "Statistics":
+    elif text == "📊 Statistics":
         await stats_command(update, context)
-    elif text == "Profile":
+    elif text == "👤 Profile":
         await profile(update, context)
-    elif text == "Settings":
+    elif text == "⚙️ Settings":
         await settings_command(update, context)
-    elif text == "Help":
+    elif text == "❓ Help":
         await help_command(update, context)
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle button callbacks - UPDATED WITH GENDER SETTINGS"""
+    """Handle button callbacks - UPDATED VERSION with Next partner fix"""
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
@@ -1310,23 +1504,29 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         if data == "cancel_search":
             cm.remove_from_waiting(user_id)
-            await query.edit_message_text("Search cancelled.")
+            await query.edit_message_text("✅ Search cancelled.")
         
         elif data == "next":
             chat_id, chat = cm.get_chat(user_id)
             if chat:
+                # Notify current partner
                 partner = cm.get_partner(chat_id, user_id)
                 if partner:
                     try:
                         await context.bot.send_message(
                             partner['id'],
-                            "Your partner wants to talk to someone else."
+                            "🔄 Your partner wants to talk to someone else.\n\nPress 'Find Partner' to find someone new."
                         )
                     except:
                         pass
                 
+                # End current chat
                 cm.end_chat(chat_id, "next")
-                await query.edit_message_text("Finding new partner...")
+                
+                # Start new search immediately
+                await start_search_for_user(user_id, context, query)
+            else:
+                await query.answer("You're not in a chat!", show_alert=True)
         
         elif data == "block":
             chat_id, chat = cm.get_chat(user_id)
@@ -1336,11 +1536,28 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     partner_nick = partner['data'].get('nickname', 'Unknown')
                     db.block_user(user_id, partner['id'], partner_nick)
                 
+                # Notify partner
+                if partner:
+                    try:
+                        await context.bot.send_message(
+                            partner['id'],
+                            "🚫 Your partner blocked you.\n\nPress 'Find Partner' to find someone new."
+                        )
+                    except:
+                        pass
+                
+                # End current chat
                 cm.end_chat(chat_id, "blocked")
-                await query.edit_message_text("User blocked.")
+                
+                # Start new search immediately
+                await query.edit_message_text("✅ User blocked. Searching for new partner...")
+                await start_search_for_user(user_id, context, query)
+            else:
+                await query.answer("You're not in a chat!", show_alert=True)
         
         elif data == "leave":
-            await leave(update, context)
+            # Use the corrected leave function
+            await leave_chat_from_callback(user_id, context, query)
         
         elif data == "rate_good":
             chat_id, chat = cm.get_chat(user_id)
@@ -1348,7 +1565,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 partner = cm.get_partner(chat_id, user_id)
                 if partner:
                     db.update_stats(partner['id'], 'ratings_positive')
-                    await query.edit_message_text("Rating submitted: Good")
+                    await query.edit_message_text("✅ Rating submitted: Good 👍")
         
         elif data == "rate_bad":
             chat_id, chat = cm.get_chat(user_id)
@@ -1356,7 +1573,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 partner = cm.get_partner(chat_id, user_id)
                 if partner:
                     db.update_stats(partner['id'], 'ratings_negative')
-                    await query.edit_message_text("Rating submitted: Bad")
+                    await query.edit_message_text("✅ Rating submitted: Bad 👎")
         
         elif data == "confirm_delete":
             user_data = db.get_user(user_id)
@@ -1371,20 +1588,20 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             db.delete_user(user_id)
             
             await query.edit_message_text(
-                f"Account '{nickname}' deleted.\n\n"
+                f"✅ Account '{nickname}' deleted.\n\n"
                 "Use /start to register again."
             )
         
         elif data == "cancel_delete":
-            await query.edit_message_text("Deletion cancelled.")
+            await query.edit_message_text("✅ Deletion cancelled.")
         
         elif data.startswith("unblock_"):
             blocked_id = data.split("_")[1]
             
             if db.unblock_user(user_id, int(blocked_id)):
-                await query.edit_message_text("User unblocked.")
+                await query.edit_message_text("✅ User unblocked.")
             else:
-                await query.edit_message_text("User not found in blocked list.")
+                await query.edit_message_text("❌ User not found in blocked list.")
         
         elif data.startswith("filter_"):
             filter_type = data.split("_")[1]
@@ -1425,7 +1642,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 user_data['gender'] = gender_map[gender_type]['value']
                 user_data['gender_display'] = gender_map[gender_type]['display']
-                user_data['auto_registered'] = False  # Mark as manually set
+                user_data['auto_registered'] = False
                 db.save_user(user_id, user_data)
                 
                 await query.edit_message_text(
@@ -1434,7 +1651,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     except Exception as e:
         logger.error(f"Callback error: {e}")
-        await query.edit_message_text("An error occurred.")
+        try:
+            await query.edit_message_text("❌ An error occurred. Please try again.")
+        except:
+            pass
 
 # ==================== CLEANUP TASK ====================
 async def cleanup_task(context: ContextTypes.DEFAULT_TYPE):
@@ -1457,7 +1677,7 @@ async def cleanup_task(context: ContextTypes.DEFAULT_TYPE):
             try:
                 await context.bot.send_message(
                     user_id,
-                    "Search cancelled due to inactivity.\n"
+                    "❌ Search cancelled due to inactivity.\n"
                     "Press 'Find Partner' to search again."
                 )
             except:
@@ -1485,7 +1705,7 @@ async def cleanup_task(context: ContextTypes.DEFAULT_TYPE):
                     try:
                         await context.bot.send_message(
                             user_info['id'],
-                            "Chat ended due to inactivity."
+                            "❌ Chat ended due to inactivity."
                         )
                     except:
                         pass
@@ -1496,17 +1716,15 @@ async def cleanup_task(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
 
-# ==================== REMOVED REGISTRATION CONVERSATION ====================
-# Registration is now automatic, no need for conversation handler
-
 # ==================== MAIN ====================
 def main():
     print("\n" + "="*60)
-    print(f"BONDLY BOT v{BOT_VERSION} - AUTO REGISTRATION EDITION")
+    print(f"BONDLY BOT v{BOT_VERSION} - ULTIMATE EDITION")
     print("="*60)
-    print("New: Automatic registration on /start")
-    print("New: Nickname from username")
-    print("New: Gender optional (default: not specified)")
+    print("Fixed: Username conversion (cleans @ symbol properly)")
+    print("Fixed: Leave partner button (works from callback)")
+    print("Fixed: Auto registration on all commands")
+    print("Fixed: Next partner button (instantly connects to new partner)")
     print("="*60)
     print("Starting bot...")
     print("="*60)
@@ -1522,7 +1740,7 @@ def main():
     app.add_handler(CommandHandler("profile", profile))
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("nickname", nickname_command))
-    app.add_handler(CommandHandler("gender", gender_command))  # NEW: Optional gender command
+    app.add_handler(CommandHandler("gender", gender_command))
     app.add_handler(CommandHandler("filter", filter_command))
     app.add_handler(CommandHandler("delete", delete_command))
     app.add_handler(CommandHandler("blocked", blocked_command))
@@ -1533,7 +1751,7 @@ def main():
     
     # Menu buttons
     app.add_handler(MessageHandler(
-        filters.TEXT & filters.Regex(r'^(Find Partner|Statistics|Profile|Settings|Help)$'),
+        filters.TEXT & filters.Regex(r'^(🔍 Find Partner|📊 Statistics|👤 Profile|⚙️ Settings|❓ Help)$'),
         handle_menu
     ))
     
@@ -1554,13 +1772,13 @@ def main():
     if job_queue:
         job_queue.run_repeating(cleanup_task, interval=60, first=30)
     
-    print("Bot is ready!")
+    print("✅ Bot is ready!")
     print("="*60)
-    print("Features:")
-    print("• Auto-registration on /start")
-    print("• Nickname from username")
-    print("• Gender optional (default: not specified)")
-    print("• Simplified user flow")
+    print("🎯 Fixed Issues:")
+    print("1. ✅ Username conversion: Cleans @ symbol properly")
+    print("2. ✅ Leave partner button: Works from callback")
+    print("3. ✅ Auto registration: Works on all commands")
+    print("4. ✅ Next partner button: Instantly connects to new partner")
     print("="*60)
     
     # Run bot
