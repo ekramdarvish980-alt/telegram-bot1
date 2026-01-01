@@ -1707,6 +1707,33 @@ async def cleanup_task(context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== MAIN ====================
 def main():
+    import sys
+    
+    # اگر فلگ clean-start داشتیم، offset را ریست کنیم
+    if '--clean-start' in sys.argv:
+        print("🔄 Performing clean start...")
+        # ریست کردن آخرین update_id برای جلوگیری از conflict
+        import asyncio
+        from telegram import Bot
+        
+        async def reset_updates():
+            bot = Bot(token=TOKEN)
+            try:
+                # گرفتن updates با drop_pending_updates=True
+                # این باعث می‌شد سرور تلگرام آخرین update_id ما را فراموش کند
+                await bot.get_updates(offset=-1, timeout=1)
+                print("✅ Reset Telegram updates offset")
+            except Exception as e:
+                print(f"⚠️ Could not reset updates: {e}")
+                # تلاش دوم با روش جایگزین
+                try:
+                    await bot.delete_webhook(drop_pending_updates=True)
+                    print("✅ Used webhook cleanup method")
+                except:
+                    print(f"⚠️ Both methods failed: {e}")
+        
+        asyncio.run(reset_updates())
+    
     print("\n" + "="*60)
     print(f"BONDLY BOT v{BOT_VERSION} - ULTIMATE EDITION")
     print("="*60)
@@ -1718,10 +1745,40 @@ def main():
     print("Starting bot...")
     print("="*60)
     
+    # ===== بخش جدید: بررسی وجود بات دیگر =====
+    print("🔍 Checking for other bot instances...")
+    import asyncio
+    from telegram import Bot
+    
+    async def check_conflict():
+        bot = Bot(token=TOKEN)
+        try:
+            # یک تست سریع برای دیدن اگر بات دیگری در حال اجراست
+            test = await bot.get_updates(timeout=2, limit=1)
+            print("✅ No conflict detected")
+            return False
+        except Exception as e:
+            if "Conflict" in str(e):
+                print("❌ CONFLICT: Another bot instance is running!")
+                print("   Fix: Stop all other instances first")
+                return True
+            else:
+                print(f"✅ Connection test passed: {e}")
+                return False
+    
+    if asyncio.run(check_conflict()):
+        print("\n❌ STOPPING: Another bot instance detected!")
+        print("Please:")
+        print("1. Stop bot on your local computer (Ctrl+C)")
+        print("2. Delete old services on Render")
+        print("3. Wait 1 minute, then restart")
+        sys.exit(1)
+    
+    # ===== ادامه کد اصلی =====
     # Create application
     app = Application.builder().token(TOKEN).build()
     
-    # Add handlers
+    # Add handlers (همان کدهای قبلی...)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("search", search))
@@ -1770,8 +1827,18 @@ def main():
     print("4. ✅ Next partner button: Instantly connects to new partner")
     print("="*60)
     
-    # Run bot
-    app.run_polling(drop_pending_updates=True)
+    # ===== بخش جدید: توقف ایمن =====
+    print("\n💡 Tips:")
+    print("- Use /start to begin")
+    print("- If bot crashes, wait 60s before restarting")
+    print("- Check logs in Render dashboard")
+    
+    # Run bot با drop_pending_updates=True برای پاک کردن صف قدیمی
+    app.run_polling(
+        drop_pending_updates=True,  # این مهم است!
+        allowed_updates=Update.ALL_TYPES,
+        close_loop=False
+    )
 
 if __name__ == "__main__":
     main()
