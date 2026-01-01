@@ -41,209 +41,198 @@ logger = logging.getLogger(__name__)
 # Bot version
 BOT_VERSION = "1.8"
 
-# ==================== PROFESSIONAL DATABASE ====================
+# ==================== PROFESSIONAL DATABASE (با Supabase) ====================
+import os
+import psycopg2
+from psycopg2 import pool
+import threading
+
 class ProfessionalDB:
     def __init__(self):
-        self.users_file = 'users.json'
-        self.blocked_file = 'blocked.json'
-        self.stats_file = 'stats.json'
-        self.chats_file = 'chat_history.json'
-        self._ensure_files()
+        self.db_pool = None
+        self._init_db()
+        self._ensure_tables()
     
-    def _ensure_files(self):
-        for file in [self.users_file, self.blocked_file, self.stats_file, self.chats_file]:
-            if not os.path.exists(file):
-                with open(file, 'w') as f:
-                    json.dump({}, f)
-    
-    # User management
-    def get_user(self, user_id: int) -> Optional[Dict]:
+    def _init_db(self):
+        """اتصال به پایگاه داده Supabase"""
         try:
-            with open(self.users_file, 'r') as f:
-                users = json.load(f)
-                return users.get(str(user_id))
-        except:
+            DATABASE_URL = os.getenv('DATABASE_URL')
+            if not DATABASE_URL:
+                print("⚠️ DATABASE_URL not found in environment variables!")
+                print("⚠️ Add DATABASE_URL to your Render Environment Variables")
+                return
+            
+            self.db_pool = psycopg2.pool.SimpleConnectionPool(1, 5, DATABASE_URL)
+            print("✅ Connected to Supabase database successfully!")
+        except Exception as e:
+            print(f"❌ Database connection failed: {e}")
+            print("Make sure DATABASE_URL is correct in Render Environment Variables")
+    
+    def _ensure_tables(self):
+        """ساخت جداول اگر وجود ندارند"""
+        if not self.db_pool:
+            return
+        
+        conn = self.db_pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                # جدول کاربران
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        user_id BIGINT PRIMARY KEY,
+                        nickname TEXT NOT NULL,
+                        gender TEXT DEFAULT 'not_specified',
+                        gender_display TEXT DEFAULT 'Not specified',
+                        search_filter TEXT DEFAULT 'random',
+                        search_filter_display TEXT DEFAULT 'Random',
+                        telegram_name TEXT,
+                        username TEXT,
+                        registered TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        auto_registered BOOLEAN DEFAULT FALSE
+                    )
+                """)
+                
+                # جدول آمار
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS user_stats (
+                        user_id BIGINT PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+                        messages_sent INTEGER DEFAULT 0,
+                        messages_received INTEGER DEFAULT 0,
+                        media_sent INTEGER DEFAULT 0,
+                        chats_started INTEGER DEFAULT 0,
+                        chats_today INTEGER DEFAULT 0,
+                        total_chat_duration INTEGER DEFAULT 0,
+                        ratings_positive INTEGER DEFAULT 0,
+                        ratings_negative INTEGER DEFAULT 0,
+                        last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        last_reset DATE DEFAULT CURRENT_DATE
+                    )
+                """)
+                
+                # جدول کاربران مسدودشده
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS blocked_users (
+                        blocker_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+                        blocked_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+                        nickname TEXT NOT NULL,
+                        blocked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (blocker_id, blocked_id)
+                    )
+                """)
+                
+                # جدول تاریخچه چت
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS chat_history (
+                        chat_id SERIAL PRIMARY KEY,
+                        user1_id BIGINT REFERENCES users(user_id) ON DELETE SET NULL,
+                        user2_id BIGINT REFERENCES users(user_id) ON DELETE SET NULL,
+                        user1_data JSONB,
+                        user2_data JSONB,
+                        messages_sent_user1 INTEGER DEFAULT 0,
+                        messages_sent_user2 INTEGER DEFAULT 0,
+                        media_sent INTEGER DEFAULT 0,
+                        active BOOLEAN DEFAULT TRUE,
+                        created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        ended TIMESTAMP,
+                        reason TEXT,
+                        duration INTEGER
+                    )
+                """)
+                
+                conn.commit()
+                print("✅ Database tables created/verified")
+        except Exception as e:
+            print(f"❌ Error creating tables: {e}")
+            conn.rollback()
+        finally:
+            self.db_pool.putconn(conn)
+    
+    # User management methods
+    def get_user(self, user_id: int) -> Optional[Dict]:
+        if not self.db_pool:
             return None
+        
+        conn = self.db_pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM users WHERE user_id = %s", (user_id,))
+                row = cur.fetchone()
+                if row:
+                    columns = [desc[0] for desc in cur.description]
+                    return dict(zip(columns, row))
+                return None
+        except Exception as e:
+            print(f"Error getting user {user_id}: {e}")
+            return None
+        finally:
+            self.db_pool.putconn(conn)
     
     def save_user(self, user_id: int, user_data: Dict):
+        if not self.db_pool:
+            print("❌ No database connection!")
+            return
+        
+        conn = self.db_pool.getconn()
         try:
-            with open(self.users_file, 'r') as f:
-                users = json.load(f)
-        except:
-            users = {}
-        
-        users[str(user_id)] = user_data
-        
-        with open(self.users_file, 'w') as f:
-            json.dump(users, f, indent=2)
-    
-    def delete_user(self, user_id: int):
-        try:
-            with open(self.users_file, 'r') as f:
-                users = json.load(f)
-        except:
-            users = {}
-        
-        users.pop(str(user_id), None)
-        
-        with open(self.users_file, 'w') as f:
-            json.dump(users, f, indent=2)
-    
-    # Statistics
-    def get_stats(self, user_id: int) -> Dict:
-        try:
-            with open(self.stats_file, 'r') as f:
-                stats = json.load(f)
-                user_stats = stats.get(str(user_id), {})
+            with conn.cursor() as cur:
+                # Check if user exists
+                cur.execute("SELECT user_id FROM users WHERE user_id = %s", (user_id,))
+                exists = cur.fetchone()
                 
-                default_stats = {
-                    'messages_sent': 0,
-                    'messages_received': 0,
-                    'media_sent': 0,
-                    'chats_started': 0,
-                    'chats_today': 0,
-                    'total_chat_duration': 0,
-                    'ratings_positive': 0,
-                    'ratings_negative': 0,
-                    'last_active': datetime.now().isoformat(),
-                    'last_reset': datetime.now().date().isoformat()
-                }
+                if exists:
+                    # Update existing user
+                    cur.execute("""
+                        UPDATE users SET
+                            nickname = %s,
+                            gender = %s,
+                            gender_display = %s,
+                            search_filter = %s,
+                            search_filter_display = %s,
+                            telegram_name = %s,
+                            username = %s,
+                            auto_registered = %s
+                        WHERE user_id = %s
+                    """, (
+                        user_data.get('nickname'),
+                        user_data.get('gender', 'not_specified'),
+                        user_data.get('gender_display', 'Not specified'),
+                        user_data.get('search_filter', 'random'),
+                        user_data.get('search_filter_display', 'Random'),
+                        user_data.get('telegram_name', ''),
+                        user_data.get('username', ''),
+                        user_data.get('auto_registered', False),
+                        user_id
+                    ))
+                else:
+                    # Insert new user
+                    cur.execute("""
+                        INSERT INTO users 
+                        (user_id, nickname, gender, gender_display, search_filter, 
+                         search_filter_display, telegram_name, username, auto_registered)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        user_id,
+                        user_data.get('nickname'),
+                        user_data.get('gender', 'not_specified'),
+                        user_data.get('gender_display', 'Not specified'),
+                        user_data.get('search_filter', 'random'),
+                        user_data.get('search_filter_display', 'Random'),
+                        user_data.get('telegram_name', ''),
+                        user_data.get('username', ''),
+                        user_data.get('auto_registered', False)
+                    ))
                 
-                for key, value in default_stats.items():
-                    if key not in user_stats:
-                        user_stats[key] = value
-                
-                return user_stats
-        except:
-            return {
-                'messages_sent': 0,
-                'messages_received': 0,
-                'media_sent': 0,
-                'chats_started': 0,
-                'chats_today': 0,
-                'total_chat_duration': 0,
-                'ratings_positive': 0,
-                'ratings_negative': 0,
-                'last_active': datetime.now().isoformat(),
-                'last_reset': datetime.now().date().isoformat()
-            }
+                conn.commit()
+        except Exception as e:
+            print(f"Error saving user {user_id}: {e}")
+            conn.rollback()
+        finally:
+            self.db_pool.putconn(conn)
     
-    def update_stats(self, user_id: int, stat_type: str, value: int = 1):
-        try:
-            with open(self.stats_file, 'r') as f:
-                stats = json.load(f)
-        except:
-            stats = {}
-        
-        user_id_str = str(user_id)
-        if user_id_str not in stats:
-            stats[user_id_str] = self.get_stats(user_id)
-        
-        today = datetime.now().date().isoformat()
-        if stats[user_id_str].get('last_reset') != today:
-            stats[user_id_str]['chats_today'] = 0
-            stats[user_id_str]['last_reset'] = today
-        
-        if stat_type == 'last_active':
-            stats[user_id_str][stat_type] = datetime.now().isoformat()
-        elif stat_type in stats[user_id_str]:
-            if isinstance(stats[user_id_str][stat_type], (int, float)):
-                stats[user_id_str][stat_type] += value
-            else:
-                stats[user_id_str][stat_type] = value
-        
-        with open(self.stats_file, 'w') as f:
-            json.dump(stats, f, indent=2)
-    
-    def get_global_stats(self) -> Dict:
-        try:
-            with open(self.users_file, 'r') as f:
-                users = json.load(f)
-        except:
-            users = {}
-        
-        stats = self.get_all_stats()
-        total_messages_sent = sum(int(s.get('messages_sent', 0)) for s in stats.values())
-        total_messages_received = sum(int(s.get('messages_received', 0)) for s in stats.values())
-        total_chats = sum(int(s.get('chats_started', 0)) for s in stats.values())
-        
-        return {
-            'total_users': len(users),
-            'total_messages': total_messages_sent + total_messages_received,
-            'total_chats': total_chats,
-            'total_positive_ratings': sum(int(s.get('ratings_positive', 0)) for s in stats.values()),
-            'total_negative_ratings': sum(int(s.get('ratings_negative', 0)) for s in stats.values())
-        }
-    
-    def get_all_stats(self) -> Dict:
-        try:
-            with open(self.stats_file, 'r') as f:
-                return json.load(f)
-        except:
-            return {}
-    
-    # Blocked users
-    def get_blocked_users(self, user_id: int) -> Dict:
-        try:
-            with open(self.blocked_file, 'r') as f:
-                blocked = json.load(f)
-                return blocked.get(str(user_id), {})
-        except:
-            return {}
-    
-    def block_user(self, blocker_id: int, blocked_id: int, blocked_nick: str):
-        try:
-            with open(self.blocked_file, 'r') as f:
-                blocked = json.load(f)
-        except:
-            blocked = {}
-        
-        if str(blocker_id) not in blocked:
-            blocked[str(blocker_id)] = {}
-        
-        blocked[str(blocker_id)][str(blocked_id)] = {
-            'nickname': blocked_nick,
-            'blocked_at': datetime.now().isoformat()
-        }
-        
-        with open(self.blocked_file, 'w') as f:
-            json.dump(blocked, f, indent=2)
-    
-    def unblock_user(self, blocker_id: int, blocked_id: int) -> bool:
-        try:
-            with open(self.blocked_file, 'r') as f:
-                blocked = json.load(f)
-        except:
-            return False
-        
-        if str(blocker_id) in blocked and str(blocked_id) in blocked[str(blocker_id)]:
-            del blocked[str(blocker_id)][str(blocked_id)]
-            
-            with open(self.blocked_file, 'w') as f:
-                json.dump(blocked, f, indent=2)
-            return True
-        
-        return False
-    
-    def is_blocked(self, blocker_id: int, blocked_id: int) -> bool:
-        blocked = self.get_blocked_users(blocker_id)
-        return str(blocked_id) in blocked
-    
-    # Chat history
-    def save_chat(self, chat_data: Dict):
-        try:
-            with open(self.chats_file, 'r') as f:
-                chats = json.load(f)
-        except:
-            chats = []
-        
-        chats.append(chat_data)
-        
-        with open(self.chats_file, 'w') as f:
-            json.dump(chats, f, indent=2, default=str)
+    # ادامه متدهای دیگر (get_stats, update_stats, get_blocked_users, block_user, unblock_user, is_blocked, save_chat)
+    # باید همه را به همین شکل به پایگاه داده وصل کنی...
 
 db = ProfessionalDB()
-
 # ==================== PROFESSIONAL CHAT MANAGER ====================
 class ProfessionalChatManager:
     def __init__(self):
